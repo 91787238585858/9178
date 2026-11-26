@@ -1,11 +1,11 @@
-name: Build Camellia KernelSU-Next v3.4.2 (Latest)
+name: Build Camellia KernelSU v0.9.5 (Stable)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build 4.14.186 + KernelSU-Next v3.4.2
+    name: Build 4.14.186 + KernelSU v0.9.5
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
@@ -18,18 +18,18 @@ jobs:
           echo "=== Kernel version ==="
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU-Next v3.4.2
+      - name: Integrate KernelSU v0.9.5
         run: |
           cd kernel
           curl -LSs -o setup.sh \
-            https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v3.4.2/kernel/setup.sh
-          sh setup.sh v3.4.2
+            https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh
+          sh setup.sh v0.9.5
           echo "=== KSU version check ==="
-          KSU_VER=$(git -C KernelSU-Next describe --tags 2>/dev/null || echo unknown)
+          KSU_VER=$(git -C KernelSU describe --tags 2>/dev/null || echo unknown)
           echo "KSU_VER=$KSU_VER"
           case "$KSU_VER" in
-            v3.4.2*) echo "KSU version OK" ;;
-            *) echo "FATAL: KSU tag is not v3.4.2 (got $KSU_VER)"; exit 1 ;;
+            v0.9.5*) echo "KSU version OK" ;;
+            *) echo "FATAL: KSU tag is not v0.9.5 (got $KSU_VER)"; exit 1 ;;
           esac
           echo "=== Integration check ==="
           test -e drivers/kernelsu || { echo "FATAL: drivers/kernelsu missing"; exit 1; }
@@ -113,4 +113,78 @@ jobs:
         run: |
           set -o pipefail
           cd kernel
-          export PATH="$
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc64/bin:$GITHUB_WORKSPACE/toolchain/gcc32/bin:$PATH"
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            LD=ld.lld \
+            2>&1 | tee "$GITHUB_WORKSPACE/build.log" | tail -300
+          echo "BUILD SUCCESS"
+          ls -la out/arch/arm64/boot/
+
+      - name: Verify kernel image
+        run: |
+          cd kernel
+          test -f out/vmlinux || { echo "FATAL: vmlinux missing"; exit 1; }
+          echo "=== KSU symbols in vmlinux ==="
+          nm out/vmlinux 2>/dev/null | grep -i "ksu" | head -20 || true
+          echo "=== KSU strings in vmlinux ==="
+          strings out/vmlinux 2>/dev/null | grep -i "kernelsu" | head -10 || true
+          if ! (nm out/vmlinux 2>/dev/null | grep -qi "ksu" || strings out/vmlinux 2>/dev/null | grep -qi "kernelsu"); then
+            echo "FATAL: no KernelSU symbols found in vmlinux"
+            exit 1
+          fi
+          cd out/arch/arm64/boot
+          ls -la
+          test -f Image.gz-dtb || { echo "FATAL: Image.gz-dtb missing"; exit 1; }
+          python3 - <<'PYEOF'
+          import zlib
+          data = open('Image.gz-dtb','rb').read()
+          print("image size: %.1f MB" % (len(data)/1024/1024))
+          raw = None
+          if data[:2] == b'\x1f\x8b':
+              try:
+                  d = zlib.decompressobj(16+zlib.MAX_WBITS)
+                  raw = d.decompress(data)
+                  print("gzip OK: kernel %.1f MB, dtb %d bytes" % (len(raw)/1024/1024, len(d.unused_data)))
+              except Exception as e:
+                  print("gzip failed: %s" % e)
+          if raw is None:
+              raw = data
+          if b'4.14.186-perf-ga368196f0bd0' not in raw:
+              raise SystemExit("FATAL: kernel version string does not match stock")
+          i = raw.find(b'Linux version ')
+          if i >= 0:
+              print("version:", raw[i:i+120].split(b'\x00')[0].decode('utf-8','replace'))
+          print("IMAGE VERIFY OK")
+          PYEOF
+          echo "VERIFY ALL OK"
+
+      - name: Package artifact
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifact"
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb "$GITHUB_WORKSPACE/artifact/" || true
+          cp kernel/out/.config "$GITHUB_WORKSPACE/artifact/config.txt" || true
+          cp "$GITHUB_WORKSPACE/build.log" "$GITHUB_WORKSPACE/artifact/build.log" || true
+          echo "FLAVOR=KernelSU v0.9.5" > "$GITHUB_WORKSPACE/artifact/KSU_FLAVOR.txt"
+          ls -la "$GITHUB_WORKSPACE/artifact/"
+          cd "$GITHUB_WORKSPACE/artifact" && zip -r9 "$GITHUB_WORKSPACE/camellia-ksu-v095.zip" *
+          ls -la "$GITHUB_WORKSPACE/camellia-ksu-v095.zip"
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: camellia-ksu-v0.9.5
+          path: camellia-ksu-v095.zip
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-v095
+          path: build.log
+          if-no-files-found: warn
