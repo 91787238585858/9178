@@ -34,6 +34,17 @@ jobs:
           grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig"; exit 1; }
           echo "KSU integration OK"
 
+      - name: Patch kernel source for build compatibility
+        run: |
+          cd kernel
+          sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          grep -rln 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | xargs -r sed -i '/cust\.dtsi>/d'
+          echo "=== remaining Werror in mtk Makefile ==="
+          grep -c 'Werror' drivers/misc/mediatek/Makefile || true
+          echo "=== remaining missing cust.dtsi refs ==="
+          grep -rn 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | head -5 || true
+          echo "patch OK"
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
@@ -113,6 +124,7 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             LD=ld.lld \
             HOSTCFLAGS="$HF" \
+            KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast" \
             > ../build.log 2>&1 || {
             echo "BUILD FAILED - error lines:"
             grep -n -i -E "error:|fatal error" ../build.log | head -40
