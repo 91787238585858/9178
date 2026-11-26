@@ -78,6 +78,23 @@ jobs:
           tail -2 drivers/misc/Makefile
           head -5 drivers/misc/xiaomi_vendor_stub.c
 
+      - name: Skip module CRC verification
+        run: |
+          cd kernel
+          python3 - <<'PYEOF'
+          import io
+          p = 'kernel/module.c'
+          s = io.open(p, encoding='utf-8').read()
+          marker = 'static int check_version('
+          assert marker in s, 'check_version not found'
+          i = s.index(marker)
+          j = s.index('{', i)
+          s = s[:j+1] + '\n\treturn 1; /* patched: skip symbol CRC verification */' + s[j+1:]
+          io.open(p, 'w', encoding='utf-8').write(s)
+          print('module.c patched: CRC verification disabled')
+          PYEOF
+          grep -A3 'static int check_version(' kernel/module.c | head -8
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
