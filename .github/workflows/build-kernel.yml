@@ -39,10 +39,8 @@ jobs:
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
           grep -rln 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | xargs -r sed -i '/cust\.dtsi>/d'
-          echo "=== remaining Werror in mtk Makefile ==="
+          echo "=== mtk Werror lines left ==="
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
-          echo "=== remaining missing cust.dtsi refs ==="
-          grep -rn 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | head -5 || true
           echo "patch OK"
 
       - name: Install dependencies
@@ -72,7 +70,6 @@ jobs:
           echo "$PWD/toolchain/gcc32/bin" >> $GITHUB_PATH
           ls toolchain/clang/bin/clang
           ls toolchain/gcc64/bin/aarch64-linux-android-gcc
-          ls toolchain/gcc32/bin/arm-linux-androideabi-gcc
 
       - name: Configure kernel
         run: |
@@ -97,20 +94,16 @@ jobs:
           set_config CONFIG_SYSTEM_TRUSTED_KEYRING n $D
           set_config CONFIG_MODULE_SIG n $D
           set_config CONFIG_DEBUG_INFO n $D
+          set_config CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE n $D
           set_config CONFIG_LOCALVERSION '"-perf-ga368196f0bd0"' $D
           set_config CONFIG_LOCALVERSION_AUTO n $D
-          V=vendor/xiaomi/kernel_modules/mihw/millet
-          mkdir -p $V
-          [ -f $V/Makefile ] || echo '# stub for missing vendor repo' > $V/Makefile
-          echo '=== vendor refs in Makefiles ==='
-          grep -rn 'vendor/' drivers/ --include=Makefile 2>/dev/null | head -10 || true
           make O=out ARCH=arm64 camellian_defconfig
           echo "=== config ==="
-          grep -E "CONFIG_KSU=|CONFIG_EXT4_FS=|CONFIG_SYSTEM_TRUSTED_KEYRING|CONFIG_LOCALVERSION" out/.config
+          grep -E "CONFIG_KSU=|CONFIG_EXT4_FS=|CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE|CONFIG_LOCALVERSION" out/.config
           grep -q "^CONFIG_KSU=y" out/.config || { echo "FATAL: KSU off"; exit 1; }
           echo "config OK"
 
-      - name: Build kernel
+      - name: Build kernel Image.gz
         run: |
           cd kernel
           HF="-Wall -Wmissing-prototypes -Wstrict-prototypes"
@@ -125,6 +118,7 @@ jobs:
             LD=ld.lld \
             HOSTCFLAGS="$HF" \
             KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast" \
+            Image.gz \
             > ../build.log 2>&1 || {
             echo "BUILD FAILED - error lines:"
             grep -n -i -E "error:|fatal error" ../build.log | head -40
@@ -148,14 +142,15 @@ jobs:
             echo "FATAL: version string mismatch"
             exit 1
           fi
-          test -f out/arch/arm64/boot/Image.gz-dtb || { echo "FATAL: no Image.gz-dtb"; exit 1; }
-          ls -la out/arch/arm64/boot/Image.gz-dtb
+          test -f out/arch/arm64/boot/Image.gz || { echo "FATAL: no Image.gz"; exit 1; }
+          ls -la out/arch/arm64/boot/Image.gz
+          python3 -c "import zlib;d=open('out/arch/arm64/boot/Image.gz','rb').read();o=zlib.decompressobj(16+zlib.MAX_WBITS);r=o.decompress(d);print('kernel decompressed: %.2f MB, tail %d bytes' % (len(r)/1048576, len(o.unused_data)))"
           echo "VERIFY OK"
 
       - name: Package artifact
         run: |
           mkdir -p artifact
-          cp kernel/out/arch/arm64/boot/Image.gz-dtb artifact/ || true
+          cp kernel/out/arch/arm64/boot/Image.gz artifact/ || true
           cp kernel/out/.config artifact/config.txt || true
           cp build.log artifact/build.log || true
           echo "FLAVOR=KernelSU v0.9.5" > artifact/KSU_FLAVOR.txt
