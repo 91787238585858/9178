@@ -1,11 +1,11 @@
-name: Build Camellia official KernelSU v3.3.1
+name: Build Camellia KernelSU v0.9.5 (Stable)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build 4.14.186 + official KernelSU v3.3.1
+    name: Build 4.14.186 + KernelSU v0.9.5
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
@@ -17,44 +17,40 @@ jobs:
           cd kernel
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate official KernelSU v3.3.1
+      - name: Integrate official KernelSU v2.1.2
         run: |
           cd kernel
           curl -LSs -o setup.sh \
-            https://raw.githubusercontent.com/tiann/KernelSU/v3.3.1/kernel/setup.sh
-          sh setup.sh v3.3.1
+            https://raw.githubusercontent.com/tiann/KernelSU/v2.1.2/kernel/setup.sh
+          sh setup.sh v2.1.2
           test -e drivers/kernelsu || { echo "FATAL: no drivers/kernelsu"; exit 1; }
-          grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile"; exit 1; }
-          grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig"; exit 1; }
-          echo "=== 4.14 header shims (only if missing) ==="
-          if [ ! -f include/linux/pgtable.h ]; then
-            printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
-            echo "created pgtable.h shim"
-          fi
-          if [ ! -f include/linux/hex.h ]; then
-            printf '#ifndef _LINUX_HEX_414_SHIM_H\n#define _LINUX_HEX_414_SHIM_H\n#include <linux/kernel.h>\n#endif\n' > include/linux/hex.h
-            echo "created hex.h shim"
-          fi
-          if [ ! -f include/linux/minmax.h ]; then
-            printf '#ifndef _LINUX_MINMAX_414_SHIM_H\n#define _LINUX_MINMAX_414_SHIM_H\n#include <linux/kernel.h>\n#endif\n' > include/linux/minmax.h
-            echo "created minmax.h shim"
-          fi
-          if [ ! -f include/linux/nospec.h ]; then
-            printf '#ifndef _LINUX_NOSPEC_414_SHIM_H\n#define _LINUX_NOSPEC_414_SHIM_H\n#ifndef array_index_nospec\n#define array_index_nospec(index, size) (index)\n#endif\n#endif\n' > include/linux/nospec.h
-            echo "created nospec.h shim"
-          fi
-          ls include/linux/pgtable.h include/linux/hex.h include/linux/minmax.h
-          echo "KSU-Next legacy integration OK"
+          grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile not patched"; exit 1; }
+          grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig not patched"; exit 1; }
+          echo "=== 4.14 compat shim (preflight-derived) ==="
+          cat > drivers/kernelsu/ksu_414_compat.h <<'COMPAT'
+          #ifndef _KSU_414_COMPAT_H
+          #define _KSU_414_COMPAT_H
+          #include <linux/types.h>
+          #include <linux/uaccess.h>
+          #ifndef MODULE_IMPORT_NS
+          #define MODULE_IMPORT_NS(x)
+          #endif
+          static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
+          {
+          	return strncpy_from_user(dst, unsafe_addr, count);
+          }
+          #endif
+          COMPAT
+          grep -q 'ksu_414_compat.h' drivers/kernelsu/Makefile || echo 'ccflags-y += -include $(srctree)/drivers/kernelsu/ksu_414_compat.h' >> drivers/kernelsu/Makefile
+          echo "--- compat header ---"
+          head -12 drivers/kernelsu/ksu_414_compat.h
+          tail -2 drivers/kernelsu/Makefile
+          echo "KSU v2.1.2 integration OK"
 
       - name: Patch kernel source for build compatibility
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
-          if [ -f drivers/kernelsu/hook/syscall_hook.h ]; then
-            sed -i 's|^#if defined(__x86_64__)$|#if defined(__aarch64__)\ntypedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);\n#elif defined(__x86_64__)|' drivers/kernelsu/hook/syscall_hook.h
-            echo "=== syscall_fn_t shim for arm64 ==="
-            head -12 drivers/kernelsu/hook/syscall_hook.h
-          fi
           grep -rln 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | xargs -r sed -i '/cust\.dtsi>/d'
           echo "=== mtk Werror lines left ==="
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
@@ -72,10 +68,8 @@ jobs:
 
           	if (!path)
           		return -EINVAL;
-
           	if (!may_mount())
           		return -EPERM;
-
           	if (path->dentry != path->mnt->mnt_root)
           		return -EINVAL;
 
@@ -90,7 +84,7 @@ jobs:
           	}
           }
           PATHUMOUNT
-            echo "path_umount backported to fs/namespace.c"
+            echo "path_umount backported"
           fi
           grep -c 'int path_umount' fs/namespace.c
 
@@ -262,24 +256,24 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz artifact/ || true
           cp kernel/out/.config artifact/config.txt || true
           cp build.log artifact/build.log || true
-          echo "FLAVOR=official KernelSU v3.3.1" > artifact/KSU_FLAVOR.txt
+          echo "FLAVOR=KernelSU v0.9.5" > artifact/KSU_FLAVOR.txt
           ls -la artifact/
           cd artifact
-          zip -r9 ../camellia-ksu-331.zip *
+          zip -r9 ../camellia-ksu-v095.zip *
           cd ..
-          ls -la camellia-ksu-331.zip
+          ls -la camellia-ksu-v095.zip
 
       - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: camellia-ksu-official-331
-          path: camellia-ksu-331.zip
+          name: camellia-ksu-v0.9.5
+          path: camellia-ksu-v095.zip
           if-no-files-found: error
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-331
+          name: build-log-v095
           path: build.log
           if-no-files-found: warn
