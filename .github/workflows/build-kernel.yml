@@ -1,0 +1,125 @@
+name: Build Camellia MIUI KernelSU Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build 4.14.186 + KernelSU (camellian_defconfig)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+
+    steps:
+      - name: Clone Xiaomi official kernel source (camellian-t-oss)
+        run: |
+          git clone --depth=1 --branch=camellian-t-oss \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          cd kernel
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
+
+      - name: Integrate KernelSU (SukiSU-Ultra / ReSukiSU)
+        run: |
+          cd kernel
+          set -x
+          curl -LSs -o /tmp/setup_sukisu.sh \
+            https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh && \
+            sh /tmp/setup_sukisu.sh || \
+          curl -LSs -o /tmp/setup_ksu.sh \
+            https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh && \
+            sh /tmp/setup_ksu.sh -s v0.9.5
+          echo "=== Check KernelSU dir ==="
+          ls -la KernelSU/ 2>/dev/null || ls -la kernel/KernelSU/ 2>/dev/null || echo "KSU dir missing"
+          grep -n "KernelSU\|KSU" Makefile | head -10
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev \
+            zip unzip cpio rsync device-tree-compiler kmod build-essential
+
+      - name: Get toolchain (Clang 12 r416183b)
+        run: |
+          mkdir -p $HOME/tc && cd $HOME/tc
+          wget -q -O clang.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz \
+            || wget -q -O clang.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-19.1.tar.gz
+          tar xzf clang.tar.gz
+          DIR=$(ls -d android_prebuilts_clang_kernel_linux-x86_clang-r416183b-* | head -1)
+          echo "CLANG_ROOT=$HOME/tc/$DIR" >> $GITHUB_ENV
+          ls $HOME/tc/$DIR/bin/clang
+
+      - name: Get GCC cross compiler (for 4.14)
+        run: |
+          mkdir -p $HOME/gcc && cd $HOME/gcc
+          wget -q -O gcc.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-20.0.tar.gz
+          tar xzf gcc.tar.gz
+          DIR=$(ls -d android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-* | head -1)
+          echo "GCC_ROOT=$HOME/gcc/$DIR" >> $GITHUB_ENV
+          ls $HOME/gcc/$DIR/bin/aarch64-linux-android-gcc
+
+      - name: Configure kernel
+        run: |
+          cd kernel
+          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$PATH"
+          make O=out ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            HOSTCC=gcc HOSTCXX=g++ \
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            camellian_defconfig 2>&1 | tail -20
+          ./scripts/config --file out/.config -e CONFIG_KSU
+          ./scripts/config --file out/.config -e CONFIG_KPROBES
+          ./scripts/config --file out/.config -e CONFIG_HAVE_KPROBES
+          ./scripts/config --file out/.config -e CONFIG_KPROBE_EVENTS
+          make O=out ARCH=arm64 olddefconfig 2>&1 | tail -5
+          grep -E "CONFIG_KSU|CONFIG_KPROBES" out/.config | head -10
+
+      - name: Build kernel
+        run: |
+          cd kernel
+          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$PATH"
+          make -j$(nproc) O=out ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            HOSTCC=gcc HOSTCXX=g++ \
+            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            2>&1 | tail -150
+          echo "=== Build output ==="
+          ls -la out/arch/arm64/boot/ 2>/dev/null
+
+      - name: Package AnyKernel3
+        run: |
+          cd kernel
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+          cd ak3 && rm -rf .git
+          cp ../out/arch/arm64/boot/Image.gz-dtb . 2>/dev/null || \
+          cp ../out/arch/arm64/boot/Image.gz . 2>/dev/null || \
+          cp ../out/arch/arm64/boot/Image .
+          ls -la Image* 2>/dev/null
+          sed -i 's/^device.name1=.*/device.name1=camellia/' anykernel.sh
+          sed -i 's/^device.name2=.*/device.name2=camellian/' anykernel.sh
+          sed -i 's|^kernel.string=.*|kernel.string=Camellia MIUI 4.14.186 + KernelSU|' anykernel.sh
+          grep -E 'device.name|kernel.string' anykernel.sh
+          zip -r9 ../camellia-ksu-kernel.zip * -x ".git/*"
+          ls -la ../camellia-ksu-kernel.zip
+
+      - name: Upload kernel package
+        uses: actions/upload-artifact@v4
+        with:
+          name: camellia-ksu-kernel
+          path: kernel/camellia-ksu-kernel.zip
+          if-no-files-found: error
+
+      - name: Upload config for debug
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config
+          path: kernel/out/.config
+          if-no-files-found: warn
