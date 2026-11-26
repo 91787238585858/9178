@@ -26,11 +26,20 @@ jobs:
           test -e drivers/kernelsu || { echo "FATAL: no drivers/kernelsu"; exit 1; }
           grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile"; exit 1; }
           grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig"; exit 1; }
-          echo "=== 4.14 header shims ==="
-          printf '#ifndef _LINUX_COMPILER_TYPES_SHIM\n#define _LINUX_COMPILER_TYPES_SHIM\n#include <linux/compiler.h>\n#endif\n' > include/linux/compiler_types.h
-          printf '#ifndef _LINUX_STATIC_KEY_SHIM\n#define _LINUX_STATIC_KEY_SHIM\n#include <linux/jump_label.h>\n#endif\n' > include/linux/static_key.h
-          printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
-          ls -la include/linux/compiler_types.h include/linux/static_key.h include/linux/pgtable.h
+          echo "=== 4.14 header shims (only if missing) ==="
+          if [ ! -f include/linux/pgtable.h ]; then
+            printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
+            echo "created pgtable.h shim"
+          fi
+          if [ ! -f include/linux/hex.h ]; then
+            printf '#ifndef _LINUX_HEX_414_SHIM_H\n#define _LINUX_HEX_414_SHIM_H\n#include <linux/kernel.h>\n#endif\n' > include/linux/hex.h
+            echo "created hex.h shim"
+          fi
+          if [ ! -f include/linux/minmax.h ]; then
+            printf '#ifndef _LINUX_MINMAX_414_SHIM_H\n#define _LINUX_MINMAX_414_SHIM_H\n#include <linux/kernel.h>\n#endif\n' > include/linux/minmax.h
+            echo "created minmax.h shim"
+          fi
+          ls include/linux/pgtable.h include/linux/hex.h include/linux/minmax.h
           echo "KSU-Next legacy integration OK"
 
       - name: Patch kernel source for build compatibility
