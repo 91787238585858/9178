@@ -43,6 +43,41 @@ jobs:
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
           echo "patch OK"
 
+      - name: Add vendor symbol stubs
+        run: |
+          cd kernel
+          cat > drivers/misc/xiaomi_vendor_stub.c <<'VENDORSTUB'
+          #include <linux/kernel.h>
+          #include <linux/string.h>
+
+          char *get_audio_pa_vendor(void)
+          {
+              return "foursemi";
+          }
+
+          int get_huaqin_pcba_config(void)
+          {
+              return 0;
+          }
+
+          int hq_regiser_hw_info(void)
+          {
+              return 0;
+          }
+
+          char *stpcpy(char *dest, const char *src)
+          {
+              char *p = dest;
+              while ((*p = *src++) != '\0')
+                  p++;
+              return p;
+          }
+          VENDORSTUB
+          grep -q xiaomi_vendor_stub drivers/misc/Makefile || echo 'obj-y += xiaomi_vendor_stub.o' >> drivers/misc/Makefile
+          echo "=== stub added ==="
+          tail -2 drivers/misc/Makefile
+          head -5 drivers/misc/xiaomi_vendor_stub.c
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
