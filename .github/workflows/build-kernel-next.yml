@@ -57,6 +57,10 @@ jobs:
           if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
             sed -i '1i #include <linux/types.h>' drivers/kernelsu/runtime/ksud_integration.c
           fi
+          if [ ! -f include/linux/pgtable.h ]; then
+            printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
+            echo "pgtable shim created"
+          fi
           printf '#ifndef _SUSFS_DEF_H\n#define _SUSFS_DEF_H\n#include <linux/types.h>\n#ifndef SUSFS_MAGIC\n#define SUSFS_MAGIC 0xA5A5A5A5\n#endif\n' > include/linux/susfs_def.h
           printf '#define CMD_SUSFS_ADD_SUS_PATH 0x55555\n#define CMD_SUSFS_ENABLE_LOG 0x5555c\n#define CMD_SUSFS_SHOW_VERSION 0x55563\n#endif\n' >> include/linux/susfs_def.h
           cp -f include/linux/susfs_def.h drivers/kernelsu/include/linux/susfs_def.h 2>/dev/null || true
