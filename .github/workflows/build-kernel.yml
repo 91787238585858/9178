@@ -6,108 +6,110 @@ on:
 jobs:
   build:
     name: Build 4.14.186 + KernelSU v0.9.5
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 300
 
+    env:
+      ARCH: arm64
+      DEFCONFIG: camellian_defconfig
+
     steps:
-      - name: Clone Xiaomi official kernel source
+      - name: Clone Xiaomi kernel source
         run: |
           git clone --depth=1 --branch=camellian-t-oss \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
           cd kernel
+          echo "=== Kernel version ==="
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU v0.9.5 and verify
+      - name: Integrate KernelSU v0.9.5
         run: |
           cd kernel
           curl -LSs -o setup.sh \
             https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh
           sh setup.sh v0.9.5
-          echo "=== KSU version ==="
-          git -C KernelSU describe --tags || true
           echo "=== Integration check ==="
           test -e drivers/kernelsu || { echo "FATAL: drivers/kernelsu missing"; exit 1; }
           grep -q "kernelsu" drivers/Makefile || { echo "FATAL: Makefile not patched"; exit 1; }
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || { echo "FATAL: Kconfig not patched"; exit 1; }
           echo "KSU integration OK"
 
-      - name: Install dependencies and host gcc-10
+      - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev \
-            zip unzip cpio rsync device-tree-compiler kmod build-essential \
-            gcc-10 g++-10 perl python3
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 \
-            --slave /usr/bin/g++ g++ /usr/bin/g++-10
-          gcc --version | head -1
-          python3 --version
+          sudo apt-get install -y -qq build-essential bc libssl-dev bison flex \
+            libelf-dev zip unzip git curl python3 perl rsync cpio \
+            device-tree-compiler kmod
+          sudo apt-get install -y -qq libncurses-dev || sudo apt-get install -y -qq libncurses5-dev || true
 
       - name: Download toolchains
         run: |
-          mkdir -p $HOME/tc && cd $HOME/tc
-          wget -q --no-check-certificate -O clang.tar.gz \
+          mkdir -p toolchain/clang toolchain/gcc64 toolchain/gcc32
+          wget -q --no-check-certificate -O /tmp/clang.tar.gz \
             https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz
-          tar xzf clang.tar.gz
-          CLANG_DIR=$(ls -d android_prebuilts_clang_kernel_linux-x86_clang-r416183b-* | head -1)
-          echo "CLANG_ROOT=$HOME/tc/$CLANG_DIR" >> $GITHUB_ENV
-          wget -q --no-check-certificate -O gcc.tar.gz \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz
-          tar xzf gcc.tar.gz
-          GCC_DIR=$(ls -d android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-* | head -1)
-          echo "GCC_ROOT=$HOME/tc/$GCC_DIR" >> $GITHUB_ENV
-          wget -q --no-check-certificate -O gccarm.tar.gz \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/archive/refs/heads/lineage-19.1.tar.gz
-          tar xzf gccarm.tar.gz
-          GCCARM_DIR=$(ls -d android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9-* | head -1)
-          echo "GCCARM_ROOT=$HOME/tc/$GCCARM_DIR" >> $GITHUB_ENV
-          ls $HOME/tc/$CLANG_DIR/bin/clang
-          ls $HOME/tc/$GCC_DIR/bin/aarch64-linux-android-gcc
+          tar xzf /tmp/clang.tar.gz -C /tmp
+          mv /tmp/android_prebuilts_clang_kernel_linux-x86_clang-r416183b-*/* toolchain/clang/
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git \
+            toolchain/gcc64
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
+            toolchain/gcc32
+          rm -f toolchain/clang/bin/ld
+          echo "=== Toolchain check ==="
+          ls -la toolchain/clang/bin/clang
+          ls -la toolchain/gcc64/bin/aarch64-linux-android-gcc
+          ls -la toolchain/gcc32/bin/arm-linux-androideabi-gcc
 
       - name: Configure kernel
         run: |
           cd kernel
-          DEFCONFIG=arch/arm64/configs/camellian_defconfig
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_DEBUG_INFO=n" >> $DEFCONFIG
-          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-perf-ga368196f0bd0"/' $DEFCONFIG
-          sed -i 's/^CONFIG_LOCALVERSION_AUTO=.*/# CONFIG_LOCALVERSION_AUTO is not set/' $DEFCONFIG
-          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$GCCARM_ROOT/bin:$PATH"
-          make O=out ARCH=arm64 \
-            CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            HOSTCC=gcc HOSTCXX=g++ \
-            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            camellian_defconfig
-          ./scripts/config --file out/.config -e CONFIG_KSU
-          ./scripts/config --file out/.config -d CONFIG_DEBUG_INFO
-          ./scripts/config --file out/.config -d CONFIG_LOCALVERSION_AUTO
-          ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-perf-ga368196f0bd0"
-          make O=out ARCH=arm64 olddefconfig
+          DEFCONFIG_FILE=arch/arm64/configs/camellian_defconfig
+          set_config() {
+            local config=$1
+            local value=$2
+            local file=$3
+            if grep -q "^# $config is not set" "$file"; then
+              sed -i "s/^# $config is not set/$config=$value/" "$file"
+            elif grep -q "^$config=" "$file"; then
+              sed -i "s/^$config=.*/$config=$value/" "$file"
+            else
+              echo "$config=$value" >> "$file"
+            fi
+          }
+          set_config CONFIG_KSU y "$DEFCONFIG_FILE"
+          set_config CONFIG_KPROBES y "$DEFCONFIG_FILE"
+          set_config CONFIG_HAVE_KPROBES y "$DEFCONFIG_FILE"
+          set_config CONFIG_KPROBE_EVENTS y "$DEFCONFIG_FILE"
+          set_config CONFIG_MODULES y "$DEFCONFIG_FILE"
+          set_config CONFIG_DEBUG_INFO n "$DEFCONFIG_FILE"
+          set_config CONFIG_LOCALVERSION '"-perf-ga368196f0bd0"' "$DEFCONFIG_FILE"
+          set_config CONFIG_LOCALVERSION_AUTO n "$DEFCONFIG_FILE"
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc64/bin:$GITHUB_WORKSPACE/toolchain/gcc32/bin:$PATH"
+          make O=out ARCH=arm64 camellian_defconfig
           echo "=== Config check ==="
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_DEBUG_INFO=|CONFIG_LOCALVERSION=|CONFIG_LOCALVERSION_AUTO" out/.config
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_KPROBE_EVENTS=|CONFIG_MODULES=|CONFIG_DEBUG_INFO=|CONFIG_LOCALVERSION" out/.config
 
       - name: Build kernel
         run: |
           set -o pipefail
           cd kernel
-          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$GCCARM_ROOT/bin:$PATH"
-          make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc64/bin:$GITHUB_WORKSPACE/toolchain/gcc32/bin:$PATH"
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            HOSTCC=gcc HOSTCXX=g++ \
-            HOSTCFLAGS="-Wno-error" \
-            KCFLAGS="-Wno-error" \
-            LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            2>&1 | tee /tmp/build.log | tail -250
+            LD=ld.lld \
+            2>&1 | tee /tmp/build.log | tail -300
           echo "BUILD SUCCESS"
           ls -la out/arch/arm64/boot/
 
       - name: Verify kernel contains KSU and correct vermagic
         run: |
           cd kernel/out/arch/arm64/boot
-          test -f Image.gz-dtb || { echo "FATAL: Image.gz-dtb missing"; exit 1; }
+          test -f Image.gz-dtb || { echo "FATAL: Image.gz-dtb missing"; ls -la; exit 1; }
           ls -la Image.gz-dtb
           python3 - <<'PYEOF'
           import zlib
