@@ -59,6 +59,11 @@ jobs:
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          if [ -f drivers/kernelsu/app_profile.c ]; then
+            sed -i 's|^\s*atomic_set(&current->seccomp.filter_count, 0);|\t/* 4.14: struct seccomp has no filter_count */|' drivers/kernelsu/app_profile.c
+            echo "=== filter_count patched ==="
+            grep -n 'filter_count' drivers/kernelsu/app_profile.c || echo "no filter_count left"
+          fi
           grep -rln 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | xargs -r sed -i '/cust\.dtsi>/d'
           echo "=== mtk Werror lines left ==="
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
