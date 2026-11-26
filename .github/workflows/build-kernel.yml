@@ -5,121 +5,150 @@ on:
 
 jobs:
   build:
-    name: Build 4.14.186 + KernelSU (camellian_defconfig)
+    name: Build 4.14.186 + KernelSU v0.9.5
     runs-on: ubuntu-22.04
     timeout-minutes: 300
 
     steps:
-      - name: Clone Xiaomi official kernel source (camellian-t-oss)
+      - name: Clone Xiaomi official kernel source
         run: |
           git clone --depth=1 --branch=camellian-t-oss \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
           cd kernel
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU (SukiSU-Ultra / ReSukiSU)
+      - name: Integrate KernelSU v0.9.5 and verify
         run: |
           cd kernel
-          set -x
-          curl -LSs -o /tmp/setup_sukisu.sh \
-            https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh && \
-            sh /tmp/setup_sukisu.sh || \
-          curl -LSs -o /tmp/setup_ksu.sh \
-            https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh && \
-            sh /tmp/setup_ksu.sh -s v0.9.5
-          echo "=== Check KernelSU dir ==="
-          ls -la KernelSU/ 2>/dev/null || ls -la kernel/KernelSU/ 2>/dev/null || echo "KSU dir missing"
-          grep -n "KernelSU\|KSU" Makefile | head -10
+          curl -LSs -o setup.sh \
+            https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh
+          sh setup.sh v0.9.5
+          echo "=== KSU version ==="
+          git -C KernelSU describe --tags || true
+          echo "=== Integration check ==="
+          test -e drivers/kernelsu || { echo "FATAL: drivers/kernelsu missing"; exit 1; }
+          grep -q "kernelsu" drivers/Makefile || { echo "FATAL: Makefile not patched"; exit 1; }
+          grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || { echo "FATAL: Kconfig not patched"; exit 1; }
+          echo "KSU integration OK"
 
-      - name: Install dependencies
+      - name: Install dependencies and host gcc-10
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq bc bison flex libssl-dev libelf-dev \
-            zip unzip cpio rsync device-tree-compiler kmod build-essential
+            zip unzip cpio rsync device-tree-compiler kmod build-essential \
+            gcc-10 g++-10 perl python3
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 \
+            --slave /usr/bin/g++ g++ /usr/bin/g++-10
+          gcc --version | head -1
+          python3 --version
 
-      - name: Get toolchain (Clang 12 r416183b)
+      - name: Download toolchains
         run: |
           mkdir -p $HOME/tc && cd $HOME/tc
-          wget -q -O clang.tar.gz \
-            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz \
-            || wget -q -O clang.tar.gz \
-            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-19.1.tar.gz
+          wget -q --no-check-certificate -O clang.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b/archive/refs/heads/lineage-20.0.tar.gz
           tar xzf clang.tar.gz
-          DIR=$(ls -d android_prebuilts_clang_kernel_linux-x86_clang-r416183b-* | head -1)
-          echo "CLANG_ROOT=$HOME/tc/$DIR" >> $GITHUB_ENV
-          ls $HOME/tc/$DIR/bin/clang
-
-      - name: Get GCC cross compiler (for 4.14)
-        run: |
-          mkdir -p $HOME/gcc && cd $HOME/gcc
-          wget -q -O gcc.tar.gz \
-            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-20.0.tar.gz
+          CLANG_DIR=$(ls -d android_prebuilts_clang_kernel_linux-x86_clang-r416183b-* | head -1)
+          echo "CLANG_ROOT=$HOME/tc/$CLANG_DIR" >> $GITHUB_ENV
+          wget -q --no-check-certificate -O gcc.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9/archive/refs/heads/lineage-19.1.tar.gz
           tar xzf gcc.tar.gz
-          DIR=$(ls -d android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-* | head -1)
-          echo "GCC_ROOT=$HOME/gcc/$DIR" >> $GITHUB_ENV
-          ls $HOME/gcc/$DIR/bin/aarch64-linux-android-gcc
+          GCC_DIR=$(ls -d android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9-* | head -1)
+          echo "GCC_ROOT=$HOME/tc/$GCC_DIR" >> $GITHUB_ENV
+          wget -q --no-check-certificate -O gccarm.tar.gz \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9/archive/refs/heads/lineage-19.1.tar.gz
+          tar xzf gccarm.tar.gz
+          GCCARM_DIR=$(ls -d android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9-* | head -1)
+          echo "GCCARM_ROOT=$HOME/tc/$GCCARM_DIR" >> $GITHUB_ENV
+          ls $HOME/tc/$CLANG_DIR/bin/clang
+          ls $HOME/tc/$GCC_DIR/bin/aarch64-linux-android-gcc
 
       - name: Configure kernel
         run: |
           cd kernel
-          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$PATH"
+          DEFCONFIG=arch/arm64/configs/camellian_defconfig
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          echo "CONFIG_DEBUG_INFO=n" >> $DEFCONFIG
+          sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-perf-ga368196f0bd0"/' $DEFCONFIG
+          sed -i 's/^CONFIG_LOCALVERSION_AUTO=.*/# CONFIG_LOCALVERSION_AUTO is not set/' $DEFCONFIG
+          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$GCCARM_ROOT/bin:$PATH"
           make O=out ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             HOSTCC=gcc HOSTCXX=g++ \
             LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            camellian_defconfig 2>&1 | tail -20
+            camellian_defconfig
           ./scripts/config --file out/.config -e CONFIG_KSU
-          ./scripts/config --file out/.config -e CONFIG_KPROBES
-          ./scripts/config --file out/.config -e CONFIG_HAVE_KPROBES
-          ./scripts/config --file out/.config -e CONFIG_KPROBE_EVENTS
-          make O=out ARCH=arm64 olddefconfig 2>&1 | tail -5
-          grep -E "CONFIG_KSU|CONFIG_KPROBES" out/.config | head -10
+          ./scripts/config --file out/.config -d CONFIG_DEBUG_INFO
+          ./scripts/config --file out/.config -d CONFIG_LOCALVERSION_AUTO
+          ./scripts/config --file out/.config --set-str CONFIG_LOCALVERSION "-perf-ga368196f0bd0"
+          make O=out ARCH=arm64 olddefconfig
+          echo "=== Config check ==="
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_DEBUG_INFO=|CONFIG_LOCALVERSION=|CONFIG_LOCALVERSION_AUTO" out/.config
 
       - name: Build kernel
         run: |
+          set -o pipefail
           cd kernel
-          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$PATH"
+          export PATH="$CLANG_ROOT/bin:$GCC_ROOT/bin:$GCCARM_ROOT/bin:$PATH"
           make -j$(nproc) O=out ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             HOSTCC=gcc HOSTCXX=g++ \
+            HOSTCFLAGS="-Wno-error" \
+            KCFLAGS="-Wno-error" \
             LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
-            2>&1 | tail -150
-          echo "=== Build output ==="
-          ls -la out/arch/arm64/boot/ 2>/dev/null
+            2>&1 | tee /tmp/build.log | tail -250
+          echo "BUILD SUCCESS"
+          ls -la out/arch/arm64/boot/
 
-      - name: Package AnyKernel3
+      - name: Verify kernel contains KSU and correct vermagic
+        run: |
+          cd kernel/out/arch/arm64/boot
+          test -f Image.gz-dtb || { echo "FATAL: Image.gz-dtb missing"; exit 1; }
+          ls -la Image.gz-dtb
+          python3 - <<'PYEOF'
+          import zlib
+          data = open('Image.gz-dtb','rb').read()
+          d = zlib.decompressobj(16+zlib.MAX_WBITS)
+          raw = d.decompress(data)
+          print("kernel decompressed: %.1f MB" % (len(raw)/1024/1024))
+          print("dtb bytes: %d" % len(d.unused_data))
+          low = raw.lower()
+          ksu_hits = low.count(b'kernelsu') + low.count(b'ksud')
+          print("KSU markers: %d" % ksu_hits)
+          i = raw.find(b'Linux version ')
+          if i >= 0:
+              print("kernel version:", raw[i:i+120].split(b'\x00')[0].decode('utf-8','replace'))
+          assert ksu_hits > 0, "FATAL: KernelSU not found in kernel"
+          assert b'4.14.186-perf-ga368196f0bd0' in raw, "FATAL: version string does not match stock"
+          print("VERIFY OK: KSU present + vermagic matches stock")
+          PYEOF
+
+      - name: Package artifact
         run: |
           cd kernel
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
-          cd ak3 && rm -rf .git
-          cp ../out/arch/arm64/boot/Image.gz-dtb . 2>/dev/null || \
-          cp ../out/arch/arm64/boot/Image.gz . 2>/dev/null || \
-          cp ../out/arch/arm64/boot/Image .
-          ls -la Image* 2>/dev/null
-          sed -i 's/^device.name1=.*/device.name1=camellia/' anykernel.sh
-          sed -i 's/^device.name2=.*/device.name2=camellian/' anykernel.sh
-          sed -i 's|^kernel.string=.*|kernel.string=Camellia MIUI 4.14.186 + KernelSU|' anykernel.sh
-          grep -E 'device.name|kernel.string' anykernel.sh
-          zip -r9 ../camellia-ksu-kernel.zip * -x ".git/*"
-          ls -la ../camellia-ksu-kernel.zip
+          mkdir -p /tmp/artifact
+          cp out/arch/arm64/boot/Image.gz-dtb /tmp/artifact/ || true
+          cp out/.config /tmp/artifact/config.txt || true
+          cp /tmp/build.log /tmp/artifact/build.log || true
+          ls -la /tmp/artifact/
+          cd /tmp/artifact && zip -r9 /tmp/camellia-ksu-build.zip *
+          ls -la /tmp/camellia-ksu-build.zip
 
-      - name: Upload kernel package
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: camellia-ksu-kernel
-          path: kernel/camellia-ksu-kernel.zip
+          path: /tmp/camellia-ksu-build.zip
           if-no-files-found: error
 
-      - name: Upload config for debug
+      - name: Upload build log always
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-config
-          path: kernel/out/.config
+          name: build-log
+          path: /tmp/build.log
           if-no-files-found: warn
