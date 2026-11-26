@@ -161,7 +161,7 @@ jobs:
           fi
           grep -c 'int path_umount' fs/namespace.c
 
-      - name: Install 4.14-compatible file_wrapper
+      - name: Install 4.14-compatible file_wrapper + sepolicy
         run: |
           cd kernel
           curl -LSs -o drivers/kernelsu/file_wrapper.c \
@@ -169,7 +169,11 @@ jobs:
           test -s drivers/kernelsu/file_wrapper.c || { echo "FATAL: file_wrapper download failed"; exit 1; }
           echo "=== file_wrapper.c replaced (4.14) ==="
           wc -l drivers/kernelsu/file_wrapper.c
-          head -3 drivers/kernelsu/file_wrapper.c
+          curl -LSs -o drivers/kernelsu/selinux/sepolicy.c \
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/sepolicy.c
+          test -s drivers/kernelsu/selinux/sepolicy.c || { echo "FATAL: sepolicy download failed"; exit 1; }
+          echo "=== sepolicy.c replaced (4.14 filename_trans) ==="
+          wc -l drivers/kernelsu/selinux/sepolicy.c
 
       - name: Add vendor symbol stubs
         run: |
