@@ -27,9 +27,22 @@ jobs:
             cp -rf "$d"/* drivers/kernelsu/uapi/ 2>/dev/null || true
             cp -rf "$d"/* include/uapi/ 2>/dev/null || true
           done
+          mkdir -p drivers/kernelsu/include
+          cat > drivers/kernelsu/include/ksu_414_shim.h <<'KSHIM'
+          #ifndef _KSU_414_SHIM_H
+          #define _KSU_414_SHIM_H
+          #include <linux/version.h>
+          #include <linux/ptrace.h>
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+          typedef asmlinkage long (*ksu_syscall_fn_t)(const struct pt_regs *regs);
+          #define syscall_fn_t ksu_syscall_fn_t
+          #endif
+          #endif
+          KSHIM
+          echo "shim written"
           for f in drivers/kernelsu/Kbuild drivers/kernelsu/Makefile; do
             if [ -f "$f" ]; then
-              sed -i '1i ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include' "$f"
+              sed -i '1i ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include -include $(srctree)/drivers/kernelsu/include/ksu_414_shim.h' "$f"
             fi
           done
           find drivers/kernelsu -type f \( -name Kbuild -o -name '*.mk' -o -name Makefile \) -exec sed -i 's/\$(error/\$(info/g' {} + || true
