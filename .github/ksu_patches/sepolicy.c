@@ -568,7 +568,8 @@ static bool add_filename_trans(struct policydb *db, const char *s,
     }
     return true;
 }
-#elsestatic bool add_filename_trans(struct policydb *db, const char *s,
+#else
+static bool add_filename_trans(struct policydb *db, const char *s,
                    const char *t, const char *c, const char *d,
                    const char *o)
 {
