@@ -82,11 +82,17 @@ jobs:
           set_config CONFIG_KPROBE_EVENTS y $D
           set_config CONFIG_MODULES y $D
           set_config CONFIG_EXT4_FS y $D
+          set_config CONFIG_MILLET n $D
           set_config CONFIG_SYSTEM_TRUSTED_KEYRING n $D
           set_config CONFIG_MODULE_SIG n $D
           set_config CONFIG_DEBUG_INFO n $D
           set_config CONFIG_LOCALVERSION '"-perf-ga368196f0bd0"' $D
           set_config CONFIG_LOCALVERSION_AUTO n $D
+          V=vendor/xiaomi/kernel_modules/mihw/millet
+          mkdir -p $V
+          [ -f $V/Makefile ] || echo '# stub for missing vendor repo' > $V/Makefile
+          echo '=== vendor refs in Makefiles ==='
+          grep -rn 'vendor/' drivers/ --include=Makefile 2>/dev/null | head -10 || true
           make O=out ARCH=arm64 camellian_defconfig
           echo "=== config ==="
           grep -E "CONFIG_KSU=|CONFIG_EXT4_FS=|CONFIG_SYSTEM_TRUSTED_KEYRING|CONFIG_LOCALVERSION" out/.config
