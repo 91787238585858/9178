@@ -47,8 +47,10 @@ jobs:
           done
           find drivers/kernelsu -type f \( -name Kbuild -o -name '*.mk' -o -name Makefile \) -exec sed -i 's/\$(error/\$(info/g' {} + || true
           for f in $(grep -rl ksu_cred drivers/kernelsu --include=*.c 2>/dev/null); do
-            grep -q 'extern struct cred \*ksu_cred' "$f" || sed -i '1i struct cred;' "$f"
+            if ! grep -q 'ksu_cred' "$f" || true; then :; fi
+            grep -q 'extern struct cred \*ksu_cred' "$f" || sed -i '1i struct cred;\nextern struct cred *ksu_cred;' "$f"
           done
+          grep -rq 'struct cred \*ksu_cred =' drivers/kernelsu || printf '\nstruct cred *ksu_cred;\n' >> drivers/kernelsu/feature/kernel_umount.c
           if [ -f drivers/kernelsu/feature/selinux_hide.c ]; then
             sed -i '1i #include <linux/types.h>' drivers/kernelsu/feature/selinux_hide.c
           fi
