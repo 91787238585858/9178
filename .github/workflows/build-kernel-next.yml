@@ -47,6 +47,16 @@ jobs:
           {
           	return strncpy_from_user(dst, unsafe_addr, count);
           }
+          #include <linux/fdtable.h>
+          #include <linux/anon_inodes.h>
+          #ifndef anon_inode_getfd_secure
+          #define anon_inode_getfd_secure(name, fops, priv, flags, ctx) anon_inode_getfd(name, fops, priv, flags)
+          #endif
+          static inline int ksys_close_414(unsigned int fd)
+          {
+          	return __close_fd(current->files, fd);
+          }
+          #define ksys_close(fd) ksys_close_414(fd)
           #endif
           COMPAT
           grep -q 'ksu_414_compat.h' drivers/kernelsu/Makefile || echo 'ccflags-y += -include $(srctree)/drivers/kernelsu/ksu_414_compat.h' >> drivers/kernelsu/Makefile
@@ -59,6 +69,11 @@ jobs:
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          if [ -f drivers/kernelsu/supercalls.c ]; then
+            sed -i 's/struct inode_security_struct \*sec = selinux_inode(wrapper_inode);/struct inode_security_struct *sec = wrapper_inode->i_security;/' drivers/kernelsu/supercalls.c
+            echo "=== selinux_inode patched ==="
+            grep -n 'i_security' drivers/kernelsu/supercalls.c | head -3
+          fi
           if [ -f drivers/kernelsu/setuid_hook.c ]; then
             sed -i 's/force_sig(SIGKILL);/force_sig(SIGKILL, current);/g' drivers/kernelsu/setuid_hook.c
             echo "=== force_sig patched (xiaomi 4.14 uses 2-arg) ==="
