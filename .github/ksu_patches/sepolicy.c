@@ -691,6 +691,58 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
         return false;
     }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+    /* 4.14: these tables are flex_array based */
+    {
+        struct flex_array *nfa;
+        void *p;
+        int i;
+
+        nfa = flex_array_alloc(sizeof(struct ebitmap), value, GFP_ATOMIC);
+        if (!nfa) {
+            pr_err("add_type: alloc type_attr_map_array failed\n");
+            return false;
+        }
+        for (i = 0; i < (int)(value - 1); i++) {
+            p = flex_array_get(db->type_attr_map_array, i);
+            if (p)
+                flex_array_put(nfa, i, p, GFP_ATOMIC);
+        }
+        {
+            struct ebitmap map;
+            ebitmap_init(&map);
+            ebitmap_set_bit(&map, value - 1, 1);
+            flex_array_put(nfa, value - 1, &map, GFP_ATOMIC);
+        }
+        db->type_attr_map_array = nfa;
+
+        nfa = flex_array_alloc(sizeof(struct type_datum *), value, GFP_ATOMIC);
+        if (!nfa) {
+            pr_err("add_type: alloc type_val_to_struct failed\n");
+            return false;
+        }
+        for (i = 0; i < (int)(value - 1); i++) {
+            p = flex_array_get(db->type_val_to_struct_array, i);
+            if (p)
+                flex_array_put(nfa, i, p, GFP_ATOMIC);
+        }
+        flex_array_put(nfa, value - 1, &type, GFP_ATOMIC);
+        db->type_val_to_struct_array = nfa;
+
+        nfa = flex_array_alloc(sizeof(char *), value, GFP_ATOMIC);
+        if (!nfa) {
+            pr_err("add_type: alloc val_to_name failed\n");
+            return false;
+        }
+        for (i = 0; i < (int)(value - 1); i++) {
+            p = flex_array_get(db->sym_val_to_name[SYM_TYPES], i);
+            if (p)
+                flex_array_put(nfa, i, p, GFP_ATOMIC);
+        }
+        flex_array_put(nfa, value - 1, &key, GFP_ATOMIC);
+        db->sym_val_to_name[SYM_TYPES] = nfa;
+    }
+#else
     struct ebitmap *new_type_attr_map_array =
         ksu_realloc(db->type_attr_map_array,
                 value * sizeof(struct ebitmap),
@@ -729,6 +781,7 @@ static bool add_type(struct policydb *db, const char *type_name, bool attr)
 
     db->sym_val_to_name[SYM_TYPES] = new_val_to_name_types;
     db->sym_val_to_name[SYM_TYPES][value - 1] = key;
+#endif
 
     int i;
     for (i = 0; i < db->p_roles.nprim; ++i) {
@@ -771,7 +824,11 @@ static bool set_type_state(struct policydb *db, const char *type_name,
 static void add_typeattribute_raw(struct policydb *db, struct type_datum *type,
                   struct type_datum *attr)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+    struct ebitmap *sattr = flex_array_get(db->type_attr_map_array, type->value - 1);
+#else
     struct ebitmap *sattr = &db->type_attr_map_array[type->value - 1];
+#endif
     ebitmap_set_bit(sattr, attr->value - 1, 1);
 
     struct hashtab_node *node;
