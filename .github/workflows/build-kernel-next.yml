@@ -156,6 +156,28 @@ jobs:
           fi
           grep -c 'int path_umount' fs/namespace.c
 
+      - name: Patch file_wrapper for 4.14
+        run: |
+          cd kernel
+          python3 - <<'PYEOF'
+          import io
+          p = 'drivers/kernelsu/file_wrapper.c'
+          s = io.open(p, encoding='utf-8').read()
+          s = s.replace('#include "file_wrapper.h"\n', '#include "file_wrapper.h"\n#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\ntypedef unsigned int __poll_t;\n#endif\n', 1)
+          s = s.replace('#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)\nstatic int ksu_wrapper_iopoll(struct kiocb *kiocb, struct io_comp_batch* icb, unsigned int v)', '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)\nstatic int ksu_wrapper_iopoll(struct kiocb *kiocb, struct io_comp_batch* icb, unsigned int v)', 1)
+          s = s.replace('\treturn orig->f_op->iopoll(kiocb, spin);\n}\n#endif\n\n#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)', '\treturn orig->f_op->iopoll(kiocb, spin);\n}\n#endif\n#endif\n\n#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)', 1)
+          s = s.replace('\tp->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;\n', '#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)\n\tp->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;\n#endif\n', 1)
+          s = s.replace('static loff_t ksu_wrapper_remap_file_range(struct file *file_in, loff_t pos_in,', '#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)\nstatic loff_t ksu_wrapper_remap_file_range(struct file *file_in, loff_t pos_in,', 1)
+          s = s.replace('static int ksu_wrapper_fadvise(struct file *fp, loff_t off1, loff_t off2, int flags) {', '#endif\n\nstatic int ksu_wrapper_fadvise(struct file *fp, loff_t off1, loff_t off2, int flags) {\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)', 1)
+          s = s.replace('\treturn -EINVAL;\n}\n\nstatic int ksu_wrapper_release(struct inode *inode, struct file *filp) {', '\treturn -EINVAL;\n}\n#endif\n\nstatic int ksu_wrapper_release(struct inode *inode, struct file *filp) {', 1)
+          s = s.replace('\tp->ops.remap_file_range = fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;\n\tp->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;\n', '#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)\n\tp->ops.remap_file_range = fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;\n\tp->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;\n#endif\n', 1)
+          s = s.replace('#else\n\tp->ops.mmap_supported_flags = fp->f_op->mmap_supported_flags;\n#endif', '#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)\n\tp->ops.mmap_supported_flags = fp->f_op->mmap_supported_flags;\n#endif', 1)
+          io.open(p, 'w', encoding='utf-8').write(s)
+          print('file_wrapper.c patched for 4.14')
+          PYEOF
+          echo "=== residual 5.x refs (should be inside #if guards) ==="
+          grep -n 'iopoll\|remap_file_range\|fadvise\|mmap_supported_flags' drivers/kernelsu/file_wrapper.c | head
+
       - name: Add vendor symbol stubs
         run: |
           cd kernel
