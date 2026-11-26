@@ -51,6 +51,40 @@ jobs:
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
           echo "patch OK"
 
+      - name: Backport path_umount from kernel 5.9
+        run: |
+          cd kernel
+          if ! grep -q 'int path_umount' fs/namespace.c; then
+            cat >> fs/namespace.c <<'PATHUMOUNT'
+
+          int path_umount(struct path *path, int flags)
+          {
+          	struct mount *mnt;
+
+          	if (!path)
+          		return -EINVAL;
+
+          	if (!may_mount())
+          		return -EPERM;
+
+          	if (path->dentry != path->mnt->mnt_root)
+          		return -EINVAL;
+
+          	mnt = real_mount(path->mnt);
+          	if (mnt_want_write(path->mnt))
+          		return -EROFS;
+
+          	{
+          		int ret = do_umount(mnt, flags);
+          		mnt_drop_write(path->mnt);
+          		return ret;
+          	}
+          }
+          PATHUMOUNT
+            echo "path_umount backported to fs/namespace.c"
+          fi
+          grep -c 'int path_umount' fs/namespace.c
+
       - name: Add vendor symbol stubs
         run: |
           cd kernel
