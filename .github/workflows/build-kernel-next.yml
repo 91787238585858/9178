@@ -50,6 +50,11 @@ jobs:
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          if [ -f drivers/kernelsu/hook/syscall_hook.h ]; then
+            sed -i 's|^#if defined(__x86_64__)$|#if defined(__aarch64__)\ntypedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);\n#elif defined(__x86_64__)|' drivers/kernelsu/hook/syscall_hook.h
+            echo "=== syscall_fn_t shim for arm64 ==="
+            head -12 drivers/kernelsu/hook/syscall_hook.h
+          fi
           grep -rln 'cust\.dtsi>' arch/arm64/boot/dts/mediatek 2>/dev/null | xargs -r sed -i '/cust\.dtsi>/d'
           echo "=== mtk Werror lines left ==="
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
