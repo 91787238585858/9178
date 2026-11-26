@@ -175,6 +175,14 @@ jobs:
           echo "=== sepolicy.c replaced (4.14 filename_trans) ==="
           wc -l drivers/kernelsu/selinux/sepolicy.c
 
+      - name: Patch rules.c policydb accessor for 4.14
+        run: |
+          cd kernel
+          sed -i 's|    struct selinux_policy \*policy = selinux_state.policy;|#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)\n    { struct selinux_ss *ss = selinux_state.ss; if (!ss) return NULL; db = \&ss->policydb; }\n#else\n    struct selinux_policy *policy = selinux_state.policy;|' drivers/kernelsu/selinux/rules.c
+          sed -i 's|    db = \&policy->policydb;|    db = \&policy->policydb;\n#endif|' drivers/kernelsu/selinux/rules.c
+          echo "=== rules.c get_policydb ==="
+          grep -A9 'static struct policydb \*get_policydb' drivers/kernelsu/selinux/rules.c | head -12
+
       - name: Add vendor symbol stubs
         run: |
           cd kernel
