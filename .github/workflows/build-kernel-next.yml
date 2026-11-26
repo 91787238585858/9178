@@ -159,10 +159,12 @@ jobs:
       - name: Install 4.14-compatible file_wrapper
         run: |
           cd kernel
-          cp "$GITHUB_WORKSPACE/.github/ksu_patches/file_wrapper.c" drivers/kernelsu/file_wrapper.c
-          echo "=== file_wrapper.c replaced with 4.14 version ==="
+          curl -LSs -o drivers/kernelsu/file_wrapper.c \
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/file_wrapper.c
+          test -s drivers/kernelsu/file_wrapper.c || { echo "FATAL: file_wrapper download failed"; exit 1; }
+          echo "=== file_wrapper.c replaced (4.14) ==="
           wc -l drivers/kernelsu/file_wrapper.c
-          grep -c 'iopoll\|remap_file_range\|fadvise' drivers/kernelsu/file_wrapper.c || echo "no 5.x fops refs"
+          head -3 drivers/kernelsu/file_wrapper.c
 
       - name: Add vendor symbol stubs
         run: |
