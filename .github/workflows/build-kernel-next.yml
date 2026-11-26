@@ -69,6 +69,24 @@ jobs:
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          if [ -f drivers/kernelsu/seccomp_cache.c ]; then
+            cat > drivers/kernelsu/seccomp_cache.c <<'SECCACHE'
+          /* 4.14: struct seccomp_filter has no cache field; this feature is stubbed */
+          #include <linux/types.h>
+
+          struct seccomp_filter;
+
+          void ksu_seccomp_clear_cache(struct seccomp_filter *filter, int nr)
+          {
+          }
+
+          void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
+          {
+          }
+          SECCACHE
+            echo "=== seccomp_cache stubbed ==="
+            head -8 drivers/kernelsu/seccomp_cache.c
+          fi
           if [ -f drivers/kernelsu/supercalls.c ]; then
             sed -i 's/struct inode_security_struct \*sec = selinux_inode(wrapper_inode);/struct inode_security_struct *sec = wrapper_inode->i_security;/' drivers/kernelsu/supercalls.c
             echo "=== selinux_inode patched ==="
