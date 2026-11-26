@@ -59,6 +59,11 @@ jobs:
         run: |
           cd kernel
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
+          if [ -f drivers/kernelsu/setuid_hook.c ]; then
+            sed -i 's/force_sig(SIGKILL);/force_sig(SIGKILL, current);/g' drivers/kernelsu/setuid_hook.c
+            echo "=== force_sig patched (xiaomi 4.14 uses 2-arg) ==="
+            grep -n 'force_sig' drivers/kernelsu/setuid_hook.c || true
+          fi
           if [ -f drivers/kernelsu/pkg_observer.c ]; then
             cat > drivers/kernelsu/pkg_observer.c <<'PKGOBS'
           /* 4.14: fsnotify API differs (handle_inode_event/fsnotify_add_inode_mark are 5.x) */
