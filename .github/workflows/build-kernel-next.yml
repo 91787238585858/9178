@@ -1,11 +1,11 @@
-name: Build Camellia KernelSU-Next v3.4.2 (Latest)
+name: Build Camellia KernelSU-Next legacy (v3.x)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build 4.14.186 + KernelSU-Next v3.4.2
+    name: Build 4.14.186 + KernelSU-Next legacy
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
@@ -17,63 +17,21 @@ jobs:
           cd kernel
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU-Next v3.4.2 (patched for 4.14)
+      - name: Integrate KernelSU-Next legacy (v3.x for old kernels)
         run: |
           cd kernel
-          git clone --depth=1 -b v3.4.2 https://github.com/KernelSU-Next/KernelSU-Next.git /tmp/ksu
-          mkdir -p drivers/kernelsu drivers/kernelsu/uapi include/uapi include/linux
-          cp -r /tmp/ksu/kernel/* drivers/kernelsu/
-          find /tmp/ksu drivers/kernelsu -type d -name uapi | while read d; do
-            cp -rf "$d"/* drivers/kernelsu/uapi/ 2>/dev/null || true
-            cp -rf "$d"/* include/uapi/ 2>/dev/null || true
-          done
-          mkdir -p drivers/kernelsu/include
-          cat > drivers/kernelsu/include/ksu_414_shim.h <<'KSHIM'
-          #ifndef _KSU_414_SHIM_H
-          #define _KSU_414_SHIM_H
-          #include <linux/version.h>
-          #include <linux/ptrace.h>
-          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-          typedef asmlinkage long (*ksu_syscall_fn_t)(const struct pt_regs *regs);
-          #define syscall_fn_t ksu_syscall_fn_t
-          #endif
-          #endif
-          KSHIM
-          echo "shim written"
-          for f in drivers/kernelsu/Kbuild drivers/kernelsu/Makefile; do
-            if [ -f "$f" ]; then
-              sed -i '1i ccflags-y += -I$(srctree)/drivers/kernelsu -I$(srctree)/drivers/kernelsu/include -include $(srctree)/drivers/kernelsu/include/ksu_414_shim.h' "$f"
-            fi
-          done
-          find drivers/kernelsu -type f \( -name Kbuild -o -name '*.mk' -o -name Makefile \) -exec sed -i 's/\$(error/\$(info/g' {} + || true
-          for f in $(grep -rl ksu_cred drivers/kernelsu --include=*.c 2>/dev/null); do
-            if ! grep -q 'ksu_cred' "$f" || true; then :; fi
-            grep -q 'extern struct cred \*ksu_cred' "$f" || sed -i '1i struct cred;\nextern struct cred *ksu_cred;' "$f"
-          done
-          grep -rq 'struct cred \*ksu_cred =' drivers/kernelsu || printf '\nstruct cred *ksu_cred;\n' >> drivers/kernelsu/feature/kernel_umount.c
-          if [ -f drivers/kernelsu/feature/selinux_hide.c ]; then
-            sed -i '1i #include <linux/types.h>' drivers/kernelsu/feature/selinux_hide.c
-          fi
-          if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
-            sed -i '1i #include <linux/types.h>' drivers/kernelsu/runtime/ksud_integration.c
-          fi
-          if [ ! -f include/linux/pgtable.h ]; then
-            printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
-            echo "pgtable shim created"
-          fi
-          printf '#ifndef _SUSFS_DEF_H\n#define _SUSFS_DEF_H\n#include <linux/types.h>\n#ifndef SUSFS_MAGIC\n#define SUSFS_MAGIC 0xA5A5A5A5\n#endif\n' > include/linux/susfs_def.h
-          printf '#define CMD_SUSFS_ADD_SUS_PATH 0x55555\n#define CMD_SUSFS_ENABLE_LOG 0x5555c\n#define CMD_SUSFS_SHOW_VERSION 0x55563\n#endif\n' >> include/linux/susfs_def.h
-          cp -f include/linux/susfs_def.h drivers/kernelsu/include/linux/susfs_def.h 2>/dev/null || true
-          if ! grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig; then
-            sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          fi
-          if ! grep -q kernelsu drivers/Makefile; then
-            echo 'obj-y += kernelsu/' >> drivers/Makefile
-          fi
-          rm -rf /tmp/ksu
-          test -e drivers/kernelsu/Kbuild || test -d drivers/kernelsu/core || { echo "FATAL: KSU-Next source missing"; exit 1; }
-          echo "=== KSU-Next files ==="
-          ls drivers/kernelsu | head -15
+          curl -LSs -o setup.sh \
+            https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh
+          sh setup.sh legacy
+          test -e drivers/kernelsu || { echo "FATAL: no drivers/kernelsu"; exit 1; }
+          grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile"; exit 1; }
+          grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig"; exit 1; }
+          echo "=== 4.14 header shims ==="
+          printf '#ifndef _LINUX_COMPILER_TYPES_SHIM\n#define _LINUX_COMPILER_TYPES_SHIM\n#include <linux/compiler.h>\n#endif\n' > include/linux/compiler_types.h
+          printf '#ifndef _LINUX_STATIC_KEY_SHIM\n#define _LINUX_STATIC_KEY_SHIM\n#include <linux/jump_label.h>\n#endif\n' > include/linux/static_key.h
+          printf '#ifndef _LINUX_PGTABLE_414_SHIM_H\n#define _LINUX_PGTABLE_414_SHIM_H\n#include <asm/pgtable.h>\n#endif\n' > include/linux/pgtable.h
+          ls -la include/linux/compiler_types.h include/linux/static_key.h include/linux/pgtable.h
+          echo "KSU-Next legacy integration OK"
 
       - name: Patch kernel source for build compatibility
         run: |
@@ -252,24 +210,24 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz artifact/ || true
           cp kernel/out/.config artifact/config.txt || true
           cp build.log artifact/build.log || true
-          echo "FLAVOR=KernelSU-Next v3.4.2" > artifact/KSU_FLAVOR.txt
+          echo "FLAVOR=KernelSU-Next legacy (v3.x)" > artifact/KSU_FLAVOR.txt
           ls -la artifact/
           cd artifact
-          zip -r9 ../camellia-ksu-next.zip *
+          zip -r9 ../camellia-ksu-nextlegacy.zip *
           cd ..
-          ls -la camellia-ksu-next.zip
+          ls -la camellia-ksu-nextlegacy.zip
 
       - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: camellia-ksu-next-v3.4.2
-          path: camellia-ksu-next.zip
+          name: camellia-ksu-nextlegacy
+          path: camellia-ksu-nextlegacy.zip
           if-no-files-found: error
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-next
+          name: build-log-nextlegacy
           path: build.log
           if-no-files-found: warn
