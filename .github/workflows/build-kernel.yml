@@ -1,17 +1,13 @@
-name: Build Camellia MIUI KernelSU Kernel
+name: Build Camellia KernelSU-Next v3.4.2 (Latest)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build 4.14.186 + KernelSU v0.9.5
+    name: Build 4.14.186 + KernelSU-Next v3.4.2
     runs-on: ubuntu-latest
     timeout-minutes: 300
-
-    env:
-      ARCH: arm64
-      DEFCONFIG: camellian_defconfig
 
     steps:
       - name: Clone Xiaomi kernel source
@@ -22,23 +18,41 @@ jobs:
           echo "=== Kernel version ==="
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU v0.9.5
+      - name: Integrate KernelSU-Next v3.4.2
         run: |
           cd kernel
           curl -LSs -o setup.sh \
-            https://raw.githubusercontent.com/tiann/KernelSU/v0.9.5/kernel/setup.sh
-          sh setup.sh v0.9.5
+            https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v3.4.2/kernel/setup.sh
+          sh setup.sh v3.4.2
+          echo "=== KSU version check ==="
+          KSU_VER=$(git -C KernelSU-Next describe --tags 2>/dev/null || echo unknown)
+          echo "KSU_VER=$KSU_VER"
+          case "$KSU_VER" in
+            v3.4.2*) echo "KSU version OK" ;;
+            *) echo "FATAL: KSU tag is not v3.4.2 (got $KSU_VER)"; exit 1 ;;
+          esac
           echo "=== Integration check ==="
           test -e drivers/kernelsu || { echo "FATAL: drivers/kernelsu missing"; exit 1; }
           grep -q "kernelsu" drivers/Makefile || { echo "FATAL: Makefile not patched"; exit 1; }
           grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || { echo "FATAL: Kconfig not patched"; exit 1; }
           echo "KSU integration OK"
 
+      - name: Patch OpenSSL 3.0 compatibility
+        run: |
+          cd kernel
+          echo 'HOSTCFLAGS += -Wno-error -Wno-deprecated-declarations' >> Makefile
+          echo 'HOSTCXXFLAGS += -Wno-error -Wno-deprecated-declarations' >> Makefile
+          for f in scripts/extract-cert.c scripts/sign-file.c; do
+            if [ -f "$f" ] && ! grep -q 'Wdeprecated-declarations' "$f"; then
+              sed -i '1i #pragma GCC diagnostic ignored "-Wdeprecated-declarations"' "$f"
+            fi
+          done
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential bc libssl-dev bison flex \
-            libelf-dev zip unzip git curl python3 perl rsync cpio \
+            libelf-dev zip unzip git curl python3 perl rsync cpio binutils \
             device-tree-compiler kmod
           sudo apt-get install -y -qq libncurses-dev || sudo apt-get install -y -qq libncurses5-dev || true
 
@@ -56,10 +70,8 @@ jobs:
             https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git \
             toolchain/gcc32
           rm -f toolchain/clang/bin/ld
-          echo "=== Toolchain check ==="
           ls -la toolchain/clang/bin/clang
           ls -la toolchain/gcc64/bin/aarch64-linux-android-gcc
-          ls -la toolchain/gcc32/bin/arm-linux-androideabi-gcc
 
       - name: Configure kernel
         run: |
@@ -82,75 +94,23 @@ jobs:
           set_config CONFIG_HAVE_KPROBES y "$DEFCONFIG_FILE"
           set_config CONFIG_KPROBE_EVENTS y "$DEFCONFIG_FILE"
           set_config CONFIG_MODULES y "$DEFCONFIG_FILE"
+          set_config CONFIG_EXT4_FS y "$DEFCONFIG_FILE"
           set_config CONFIG_DEBUG_INFO n "$DEFCONFIG_FILE"
           set_config CONFIG_LOCALVERSION '"-perf-ga368196f0bd0"' "$DEFCONFIG_FILE"
           set_config CONFIG_LOCALVERSION_AUTO n "$DEFCONFIG_FILE"
           export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc64/bin:$GITHUB_WORKSPACE/toolchain/gcc32/bin:$PATH"
           make O=out ARCH=arm64 camellian_defconfig
           echo "=== Config check ==="
-          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_KPROBE_EVENTS=|CONFIG_MODULES=|CONFIG_DEBUG_INFO=|CONFIG_LOCALVERSION" out/.config
+          grep -E "CONFIG_KSU=|CONFIG_KPROBES=|CONFIG_EXT4_FS=|CONFIG_MODULES=|CONFIG_DEBUG_INFO=|CONFIG_LOCALVERSION" out/.config
+          grep -q "^CONFIG_KSU=y" out/.config || {
+            echo "FATAL: CONFIG_KSU not enabled"
+            grep -E "CONFIG_KSU|KPROBES|EXT4" out/.config
+            exit 1
+          }
+          echo "CONFIG_KSU=y confirmed"
 
       - name: Build kernel
         run: |
           set -o pipefail
           cd kernel
-          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc64/bin:$GITHUB_WORKSPACE/toolchain/gcc32/bin:$PATH"
-          make -j$(nproc --all) O=out \
-            ARCH=arm64 \
-            CC="clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            LD=ld.lld \
-            2>&1 | tee /tmp/build.log | tail -300
-          echo "BUILD SUCCESS"
-          ls -la out/arch/arm64/boot/
-
-      - name: Verify kernel contains KSU and correct vermagic
-        run: |
-          cd kernel/out/arch/arm64/boot
-          test -f Image.gz-dtb || { echo "FATAL: Image.gz-dtb missing"; ls -la; exit 1; }
-          ls -la Image.gz-dtb
-          python3 - <<'PYEOF'
-          import zlib
-          data = open('Image.gz-dtb','rb').read()
-          d = zlib.decompressobj(16+zlib.MAX_WBITS)
-          raw = d.decompress(data)
-          print("kernel decompressed: %.1f MB" % (len(raw)/1024/1024))
-          print("dtb bytes: %d" % len(d.unused_data))
-          low = raw.lower()
-          ksu_hits = low.count(b'kernelsu') + low.count(b'ksud')
-          print("KSU markers: %d" % ksu_hits)
-          i = raw.find(b'Linux version ')
-          if i >= 0:
-              print("kernel version:", raw[i:i+120].split(b'\x00')[0].decode('utf-8','replace'))
-          assert ksu_hits > 0, "FATAL: KernelSU not found in kernel"
-          assert b'4.14.186-perf-ga368196f0bd0' in raw, "FATAL: version string does not match stock"
-          print("VERIFY OK: KSU present + vermagic matches stock")
-          PYEOF
-
-      - name: Package artifact
-        run: |
-          cd kernel
-          mkdir -p /tmp/artifact
-          cp out/arch/arm64/boot/Image.gz-dtb /tmp/artifact/ || true
-          cp out/.config /tmp/artifact/config.txt || true
-          cp /tmp/build.log /tmp/artifact/build.log || true
-          ls -la /tmp/artifact/
-          cd /tmp/artifact && zip -r9 /tmp/camellia-ksu-build.zip *
-          ls -la /tmp/camellia-ksu-build.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: camellia-ksu-kernel
-          path: /tmp/camellia-ksu-build.zip
-          if-no-files-found: error
-
-      - name: Upload build log always
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build.log
-          if-no-files-found: warn
+          export PATH="$
