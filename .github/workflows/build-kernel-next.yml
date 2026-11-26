@@ -92,6 +92,11 @@ jobs:
             echo "=== selinux_inode patched ==="
             grep -n 'i_security' drivers/kernelsu/supercalls.c | head -3
           fi
+          if [ -f drivers/kernelsu/selinux/selinux.c ]; then
+            sed -i 's/selinux_cred(cred)/(const struct task_security_struct *)(cred->security)/g' drivers/kernelsu/selinux/selinux.c
+            echo "=== selinux_cred patched ==="
+            grep -n 'cred->security' drivers/kernelsu/selinux/selinux.c | head -3
+          fi
           if [ -f drivers/kernelsu/setuid_hook.c ]; then
             sed -i 's/force_sig(SIGKILL);/force_sig(SIGKILL, current);/g' drivers/kernelsu/setuid_hook.c
             echo "=== force_sig patched (xiaomi 4.14 uses 2-arg) ==="
