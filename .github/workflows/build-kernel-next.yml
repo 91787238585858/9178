@@ -1,11 +1,11 @@
-name: Build Camellia KernelSU-Next legacy (v3.x)
+name: Build Camellia official KernelSU v3.3.1
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build 4.14.186 + KernelSU-Next legacy
+    name: Build 4.14.186 + official KernelSU v3.3.1
     runs-on: ubuntu-latest
     timeout-minutes: 300
 
@@ -17,12 +17,12 @@ jobs:
           cd kernel
           grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' Makefile
 
-      - name: Integrate KernelSU-Next legacy (v3.x for old kernels)
+      - name: Integrate official KernelSU v3.3.1
         run: |
           cd kernel
           curl -LSs -o setup.sh \
-            https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh
-          sh setup.sh legacy
+            https://raw.githubusercontent.com/tiann/KernelSU/v3.3.1/kernel/setup.sh
+          sh setup.sh v3.3.1
           test -e drivers/kernelsu || { echo "FATAL: no drivers/kernelsu"; exit 1; }
           grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile"; exit 1; }
           grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig"; exit 1; }
@@ -38,6 +38,10 @@ jobs:
           if [ ! -f include/linux/minmax.h ]; then
             printf '#ifndef _LINUX_MINMAX_414_SHIM_H\n#define _LINUX_MINMAX_414_SHIM_H\n#include <linux/kernel.h>\n#endif\n' > include/linux/minmax.h
             echo "created minmax.h shim"
+          fi
+          if [ ! -f include/linux/nospec.h ]; then
+            printf '#ifndef _LINUX_NOSPEC_414_SHIM_H\n#define _LINUX_NOSPEC_414_SHIM_H\n#ifndef array_index_nospec\n#define array_index_nospec(index, size) (index)\n#endif\n#endif\n' > include/linux/nospec.h
+            echo "created nospec.h shim"
           fi
           ls include/linux/pgtable.h include/linux/hex.h include/linux/minmax.h
           echo "KSU-Next legacy integration OK"
@@ -253,24 +257,24 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz artifact/ || true
           cp kernel/out/.config artifact/config.txt || true
           cp build.log artifact/build.log || true
-          echo "FLAVOR=KernelSU-Next legacy (v3.x)" > artifact/KSU_FLAVOR.txt
+          echo "FLAVOR=official KernelSU v3.3.1" > artifact/KSU_FLAVOR.txt
           ls -la artifact/
           cd artifact
-          zip -r9 ../camellia-ksu-nextlegacy.zip *
+          zip -r9 ../camellia-ksu-331.zip *
           cd ..
-          ls -la camellia-ksu-nextlegacy.zip
+          ls -la camellia-ksu-331.zip
 
       - name: Upload kernel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: camellia-ksu-nextlegacy
-          path: camellia-ksu-nextlegacy.zip
+          name: camellia-ksu-official-331
+          path: camellia-ksu-331.zip
           if-no-files-found: error
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-nextlegacy
+          name: build-log-331
           path: build.log
           if-no-files-found: warn
