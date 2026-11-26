@@ -87,7 +87,7 @@ jobs:
 
           char *get_audio_pa_vendor(void)
           {
-              return "foursemi";
+              return "awinic";
           }
 
           int get_huaqin_pcba_config(void)
