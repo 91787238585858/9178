@@ -65,7 +65,13 @@ jobs:
           #define ksys_close(fd) ksys_close_414(fd)
           #endif
           COMPAT
-          grep -q 'ksu_414_compat.h' drivers/kernelsu/Makefile || echo 'ccflags-y += -include $(srctree)/drivers/kernelsu/ksu_414_compat.h' >> drivers/kernelsu/Makefile
+          for f in drivers/kernelsu/Kbuild drivers/kernelsu/Makefile; do
+            if [ -f "$f" ] && ! grep -q 'ksu_414_compat.h' "$f"; then
+              echo 'ccflags-y += -include $(srctree)/drivers/kernelsu/ksu_414_compat.h' >> "$f"
+              echo "compat include appended to $f"
+            fi
+          done
+          grep -n 'ksu_414_compat' drivers/kernelsu/Kbuild drivers/kernelsu/Makefile 2>/dev/null || true
           echo "--- compat header ---"
           head -12 drivers/kernelsu/ksu_414_compat.h
           tail -2 drivers/kernelsu/Makefile
