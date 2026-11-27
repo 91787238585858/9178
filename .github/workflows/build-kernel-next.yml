@@ -92,6 +92,24 @@ jobs:
             echo "=== selinux_inode patched ==="
             grep -n 'i_security' drivers/kernelsu/supercalls.c | head -3
           fi
+          if [ -f drivers/kernelsu/ksud.c ]; then
+            python3 - <<'RCWIDEN'
+          import io
+          p = 'drivers/kernelsu/ksud.c'
+          s = io.open(p, encoding='utf-8').read()
+          a = 'if (strcmp(short_name, "atrace.rc")) {'
+          b = 'if (strcmp(short_name, "atrace.rc") && !strstr(short_name, ".rc")) {'
+          if a in s:
+              s = s.replace(a, b, 1)
+          c = 'if (strcmp(dpath, "/system/etc/init/atrace.rc")) {'
+          d = 'if (strncmp(dpath, "/system/etc/init/", 17)) {'
+          if c in s:
+              s = s.replace(c, d, 1)
+          io.open(p, 'w', encoding='utf-8').write(s)
+          print('ksud.rc injection widened to any /system/etc/init/*.rc')
+          RCWIDEN
+            grep -n 'strncmp(dpath,\|strstr(short_name' drivers/kernelsu/ksud.c | head -4
+          fi
           if [ -f drivers/kernelsu/throne_tracker.c ]; then
             sed -i 's|            bool is_manager = is_manager_apk(dirpath);|            bool is_manager;\n#ifdef KSU_MANAGER_PACKAGE\n            {\n                char _mt_pkg[KSU_MAX_PACKAGE_NAME];\n                is_manager = (get_pkg_from_apk_path(_mt_pkg, dirpath) == 0 \&\& strncmp(_mt_pkg, KSU_MANAGER_PACKAGE, sizeof(KSU_MANAGER_PACKAGE)) == 0) \|\| is_manager_apk(dirpath);\n            }\n#else\n            is_manager = is_manager_apk(dirpath);\n#endif|' drivers/kernelsu/throne_tracker.c
             echo "=== throne_tracker manager match patched ==="
