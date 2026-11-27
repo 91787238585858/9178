@@ -130,13 +130,33 @@ jobs:
           /* 4.14: fsnotify API differs (handle_inode_event/fsnotify_add_inode_mark are 5.x) */
           #include <linux/types.h>
 
+          #include <linux/workqueue.h>
+          #include <linux/jiffies.h>
+
+          extern void track_throne(void);
+
+          static void ksu_observer_rescan(struct work_struct *w);
+          static DECLARE_DELAYED_WORK(ksu_observer_work, ksu_observer_rescan);
+          static int ksu_observer_retries = 6;
+
+          static void ksu_observer_rescan(struct work_struct *w)
+          {
+          	track_throne();
+          	if (--ksu_observer_retries > 0)
+          		schedule_delayed_work(&ksu_observer_work, 20 * HZ);
+          }
+
           int ksu_observer_init(void)
           {
+          	/* 4.14: fsnotify API differs, so crown the manager here (post-fs-data) */
+          	track_throne();
+          	schedule_delayed_work(&ksu_observer_work, 20 * HZ);
           	return 0;
           }
 
           void ksu_observer_exit(void)
           {
+          	cancel_delayed_work_sync(&ksu_observer_work);
           }
           PKGOBS
             echo "=== pkg_observer stubbed ==="
