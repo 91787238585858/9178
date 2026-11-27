@@ -43,16 +43,26 @@ jobs:
           #ifndef TWA_SIGNAL
           #define TWA_SIGNAL 1
           #endif
+          /* 4.14: upstream __strncpy_from_unsafe equivalent; never sleeps */
           static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
           {
-          	long ret;
-          	if (count <= 0)
+          	long i = 0;
+          	if (!dst || !unsafe_addr || count <= 0)
           		return -EINVAL;
-          	/* must not sleep: called from kprobe handler (atomic context) */
           	pagefault_disable();
-          	ret = strncpy_from_user(dst, unsafe_addr, count);
+          	while (i < count - 1) {
+          		char c;
+          		if (__get_user(c, (const char __user *)unsafe_addr + i))
+          			break;
+          		dst[i] = c;
+          		i++;
+          		if (!c)
+          			break;
+          	}
+          	if (count > 0)
+          		dst[i < count ? i : count - 1] = '\0';
           	pagefault_enable();
-          	return ret;
+          	return i;
           }
           #include <linux/fdtable.h>
           #include <linux/anon_inodes.h>
