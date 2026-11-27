@@ -174,6 +174,12 @@ jobs:
           test -s drivers/kernelsu/file_wrapper.c || { echo "FATAL: file_wrapper download failed"; exit 1; }
           echo "=== file_wrapper.c replaced (4.14) ==="
           wc -l drivers/kernelsu/file_wrapper.c
+          curl -LSs -o drivers/kernelsu/arch.h \
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/arch212.h
+          test -s drivers/kernelsu/arch.h || { echo "FATAL: arch.h download failed"; exit 1; }
+          grep -q 'sys_reboot' drivers/kernelsu/arch.h || { echo "FATAL: arch.h not patched"; exit 1; }
+          echo "=== arch.h replaced (4.14 sys_* symbols) ==="
+          grep -n 'sys_reboot\|REBOOT_SYMBOL' drivers/kernelsu/arch.h | head -6
           curl -LSs -o drivers/kernelsu/selinux/sepolicy.c \
             https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/sepolicy.c
           test -s drivers/kernelsu/selinux/sepolicy.c || { echo "FATAL: sepolicy download failed"; exit 1; }
