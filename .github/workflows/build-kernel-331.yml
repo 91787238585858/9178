@@ -175,6 +175,25 @@ jobs:
           grep -c 'Werror' drivers/misc/mediatek/Makefile || true
           echo "patch OK"
 
+      - name: Add 5.x header shims for 4.14
+        run: |
+          cd kernel
+          mkdir -p include/linux
+          [ -f include/linux/pgtable.h ] || printf '#include <asm/pgtable.h>\n' > include/linux/pgtable.h
+          [ -f include/linux/hex.h ] || printf '#include <linux/kernel.h>\n' > include/linux/hex.h
+          [ -f include/linux/minmax.h ] || printf '#include <linux/kernel.h>\n' > include/linux/minmax.h
+          [ -f include/linux/static_key.h ] || printf '#include <linux/jump_label.h>\n' > include/linux/static_key.h
+          if [ ! -f include/linux/nospec.h ]; then
+            cat > include/linux/nospec.h <<'NOSPEC'
+          #ifndef _LINUX_NOSPEC_H
+          #define _LINUX_NOSPEC_H
+          #define array_index_nospec(index, size) (index)
+          #endif
+          NOSPEC
+          fi
+          echo "=== shims ==="
+          ls -la include/linux/pgtable.h include/linux/hex.h include/linux/minmax.h include/linux/nospec.h include/linux/static_key.h
+
       - name: Backport path_umount from kernel 5.9
         run: |
           cd kernel
