@@ -309,6 +309,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             LD=ld.lld \
+            KSU_MANAGER_PACKAGE=me.weishu.kernelsu \
             HOSTCFLAGS="$HF" \
             KCFLAGS="-Wno-error -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast" \
             Image.gz \
@@ -337,6 +338,10 @@ jobs:
           fi
           if strings out/vmlinux | grep -q "ga368196f0bd0+"; then
             echo "FATAL: version string has trailing plus (vermagic mismatch)"
+            exit 1
+          fi
+          if ! strings out/vmlinux | grep -q "me.weishu.kernelsu"; then
+            echo "FATAL: KSU_MANAGER_PACKAGE not compiled in"
             exit 1
           fi
           echo "vermagic exact-match OK"
