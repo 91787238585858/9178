@@ -45,7 +45,14 @@ jobs:
           #endif
           static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
           {
-          	return strncpy_from_user(dst, unsafe_addr, count);
+          	long ret;
+          	if (count <= 0)
+          		return -EINVAL;
+          	/* must not sleep: called from kprobe handler (atomic context) */
+          	pagefault_disable();
+          	ret = strncpy_from_user(dst, unsafe_addr, count);
+          	pagefault_enable();
+          	return ret;
           }
           #include <linux/fdtable.h>
           #include <linux/anon_inodes.h>
