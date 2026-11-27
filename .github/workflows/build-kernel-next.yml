@@ -188,6 +188,71 @@ jobs:
           echo "=== rules.c get_policydb ==="
           grep -A9 'static struct policydb \*get_policydb' drivers/kernelsu/selinux/rules.c | head -12
 
+      - name: Embed ksud into kernel (built-in mode)
+        run: |
+          cd kernel
+          curl -LSs -o /tmp/ksud.arm64 https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/ksud.arm64
+          test -s /tmp/ksud.arm64 || { echo "FATAL: ksud download failed"; exit 1; }
+          xxd -i /tmp/ksud.arm64 > /tmp/ksud_arr.h
+          sed -i 's/unsigned char _tmp_ksud_arm64\[\]/const char ksud[]/; s/unsigned int _tmp_ksud_arm64_len/unsigned int ksud_size/' /tmp/ksud_arr.h
+          {
+            echo '#include <linux/types.h>'
+            echo '#include <linux/fs.h>'
+            echo '#include <linux/file.h>'
+            echo '#include <linux/namei.h>'
+            echo '#include <linux/printk.h>'
+            echo '#include <linux/err.h>'
+            cat /tmp/ksud_arr.h
+            cat <<'INSTALL'
+
+          void ksu_install_embedded_ksud(void)
+          {
+              struct file *fp;
+              struct path p;
+              loff_t off = 0;
+              int ret;
+
+              if (!ksud_size) {
+                  pr_info("ksud: nothing embedded\n");
+                  return;
+              }
+              if (kern_path("/data/adb/ksud", 0, &p) == 0) {
+                  path_put(&p);
+                  pr_info("ksud: already present\n");
+                  return;
+              }
+              fp = filp_open("/data/adb/ksud", O_WRONLY | O_CREAT | O_TRUNC, 0755);
+              if (IS_ERR(fp)) {
+                  pr_err("ksud: create failed %ld\n", PTR_ERR(fp));
+                  return;
+              }
+              ret = kernel_write(fp, ksud, ksud_size, &off);
+              if (ret != (int)ksud_size)
+                  pr_err("ksud: short write %d/%u\n", ret, ksud_size);
+              else
+                  pr_info("ksud: installed %u bytes\n", ksud_size);
+              filp_close(fp, NULL);
+          }
+          INSTALL
+          } > drivers/kernelsu/embed_ksud.c
+          python3 - <<'PYEOF'
+          import io, re
+          p = 'drivers/kernelsu/ksud.c'
+          s = io.open(p, encoding='utf-8').read()
+          if 'ksu_install_embedded_ksud' not in s:
+              s = s.replace('void ksu_ksud_init()', 'extern void ksu_install_embedded_ksud(void);\n\nvoid ksu_ksud_init()', 1)
+              m = re.search(r'(void ksu_ksud_init\(\)\s*\{)', s)
+              if m:
+                  idx = m.end()
+                  s = s[:idx] + '\n\tksu_install_embedded_ksud();' + s[idx:]
+              io.open(p, 'w', encoding='utf-8').write(s)
+              print('ksud.c patched to install embedded ksud')
+          else:
+              print('ksud.c already patched')
+          PYEOF
+          wc -l drivers/kernelsu/embed_ksud.c
+          grep -n 'ksu_install_embedded_ksud' drivers/kernelsu/ksud.c
+
       - name: Add vendor symbol stubs
         run: |
           cd kernel
