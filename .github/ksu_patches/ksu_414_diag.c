@@ -13,6 +13,7 @@
 #include "syscall_hook_manager.h"
 #include "ksud.h"
 #include "supercalls.h"
+#include "manager.h"
 
 /* 4.14 diagnostic: each init step leaves a /proc marker behind, so a userland
  * shell can tell exactly how far kernelsu_init() got without dmesg access. */
@@ -39,9 +40,29 @@ static void ksu_mark(const char *name)
 	proc_create(name, 0444, NULL, &ksu_step_fops);
 }
 
+/* 动态显示内核当前认为的管理器 uid 与关键符号地址 */
+static int ksu_live_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "manager_uid=%d\n", ksu_get_manager_uid());
+	return 0;
+}
+
+static int ksu_live_open(struct inode *i, struct file *f)
+{
+	return single_open(f, ksu_live_show, NULL);
+}
+
+static const struct file_operations ksu_live_fops = {
+	.open = ksu_live_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 int __init kernelsu_init(void)
 {
 	ksu_mark("ksu_step0_enter");
+	proc_create("ksu_live", 0444, NULL, &ksu_live_fops);
 
 #ifdef CONFIG_KSU_DEBUG
 	pr_alert("*************************************************************");
