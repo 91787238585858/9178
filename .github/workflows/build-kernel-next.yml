@@ -314,7 +314,7 @@ jobs:
           t = t.replace('void ksu_syscall_hook_manager_init(void)', code + 'void ksu_syscall_hook_manager_init(void)', 1)
           old = '\tksu_sucompat_init();'
           assert old in t, 'sucompat_init anchor missing'
-          t = t.replace(old, '\tksu_sucompat_init();' + reg, 1)
+          t = t.replace(old, '\tksu_sucompat_init();' + chr(10) + reg, 1)
           io.open(p, 'w', encoding='utf-8', newline='\n').write(t)
           print('setresuid kprobe added')
           PYKP
@@ -355,7 +355,7 @@ jobs:
           t = t.replace('void ksu_syscall_hook_manager_init(void)', code + 'void ksu_syscall_hook_manager_init(void)', 1)
           old = '\tksu_sucompat_init();'
           assert old in t
-          t = t.replace(old, '\tksu_sucompat_init();' + reg, 1)
+          t = t.replace(old, '\tksu_sucompat_init();' + chr(10) + reg, 1)
           io.open(p, 'w', encoding='utf-8', newline='\n').write(t)
           print('execve sucompat kprobe added')
           PYEX
