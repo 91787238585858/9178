@@ -320,6 +320,47 @@ jobs:
           PYKP
           grep -n 'ksu_setresuid_kp' drivers/kernelsu/syscall_hook_manager.c | head -5
 
+      - name: Add execve sucompat kprobe (tracepoint ineffective on 4.14)
+        run: |
+          cd kernel
+          python3 - <<'PYEX'
+          import io
+          p = 'drivers/kernelsu/syscall_hook_manager.c'
+          t = io.open(p, encoding='utf-8').read()
+          code = """#ifdef CONFIG_KPROBES
+          static int ksu_execve_sucompat_kp_pre(struct kprobe *p, struct pt_regs *regs)
+          {
+          	const char __user **filename_user =
+          		(const char __user **)&PT_REGS_PARM1(regs);
+          	ksu_handle_execve_sucompat(filename_user, NULL, NULL, NULL);
+          	return 0;
+          }
+          static struct kprobe ksu_execve_sucompat_kp = {
+          	.symbol_name = "sys_execve",
+          	.pre_handler = ksu_execve_sucompat_kp_pre,
+          };
+          #endif
+
+          """
+          reg = """#ifdef CONFIG_KPROBES
+          	{
+          		int er = register_kprobe(&ksu_execve_sucompat_kp);
+          		if (er)
+          			ksu_mark_global("ksu_kp_execve_FAIL");
+          		else
+          			ksu_mark_global("ksu_kp_execve_OK");
+          	}
+          #endif"""
+          assert 'void ksu_syscall_hook_manager_init(void)' in t
+          t = t.replace('void ksu_syscall_hook_manager_init(void)', code + 'void ksu_syscall_hook_manager_init(void)', 1)
+          old = '\tksu_sucompat_init();\n}'
+          assert old in t
+          t = t.replace(old, '\tksu_sucompat_init();\n' + reg + '\n}', 1)
+          io.open(p, 'w', encoding='utf-8', newline='\n').write(t)
+          print('execve sucompat kprobe added')
+          PYEX
+          grep -c 'ksu_execve_sucompat_kp' drivers/kernelsu/syscall_hook_manager.c
+
       - name: Patch rules.c policydb accessor for 4.14
         run: |
           cd kernel
