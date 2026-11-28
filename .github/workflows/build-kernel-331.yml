@@ -27,6 +27,17 @@ jobs:
           grep -q kernelsu drivers/Makefile || { echo "FATAL: Makefile not patched"; exit 1; }
           grep -q drivers/kernelsu/Kconfig drivers/Kconfig || { echo "FATAL: Kconfig not patched"; exit 1; }
           echo "=== 4.14 compat shim (preflight-derived) ==="
+          # 4.14: uapi/linux/mount.h only exists since 5.2
+          mkdir -p include/uapi/linux
+          cat > include/uapi/linux/mount.h <<'MNT'
+          #ifndef _UAPI_LINUX_MOUNT_H
+          #define _UAPI_LINUX_MOUNT_H
+          #include <linux/types.h>
+          #include <linux/fs.h>
+          #endif
+          MNT
+          echo "=== uapi/linux/mount.h shim created ==="
+          cat include/uapi/linux/mount.h
           cat > drivers/kernelsu/ksu_414_compat.h <<'COMPAT'
           #ifndef _KSU_414_COMPAT_H
           #define _KSU_414_COMPAT_H
