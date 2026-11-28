@@ -12,71 +12,31 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-linux-android
-          echo "=== rust ready ==="
           rustc -V
 
       - name: Install Android NDK
         run: |
           set -e
-          NDK_VERSION=r27
-          curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r27-linux.zip"
           unzip -q /tmp/ndk.zip -d /opt
-          mv /opt/android-ndk-* /opt/ndk
+          mv /opt/android-ndk-r27 /opt/ndk
           echo "NDK=/opt/ndk" >> $GITHUB_ENV
           ls /opt/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/ | grep aarch64 | head -5
 
       - name: Checkout KernelSU v2.1.2
         run: |
           git clone --depth 1 --branch v2.1.2 https://github.com/tiann/KernelSU.git ksu
-          cd ksu
-          git log --oneline -1
+          cd ksu && git log --oneline -1
 
-      - name: Patch mount_ext4 to use legacy mount(2)
+      - name: Apply legacy mount patch
         run: |
-          cd ksu/userspace/ksud/src
-          python3 - <<'PY'
-          import io
-          p = 'mount.rs'
-          t = io.open(p, encoding='utf-8').read()
-          old_start = 'pub fn mount_ext4(source: impl AsRef<Path>, target: impl AsRef<Path>) -> Result<()> {'
-          i = t.find(old_start)
-          assert i > 0, 'mount_ext4 not found'
-          # find matching closing brace of the function
-          depth = 0
-          j = i
-          while j < len(t):
-              if t[j] == '{':
-                  depth += 1
-              elif t[j] == '}':
-                  depth -= 1
-                  if depth == 0:
-                      break
-              j += 1
-          new_body = '''pub fn mount_ext4(source: impl AsRef<Path>, target: impl AsRef<Path>) -> Result<()> {
-    let new_loopback = loopdev::LoopControl::open()?
-        .next_free()
-        .with_context(|| "Failed to alloc loop")?;
-    new_loopback
-        .with()
-        .attach(source)
-        .with_context(|| "Failed to attach loop")?;
-    let lo = new_loopback.path().ok_or(anyhow!("no loop"))?;
-    // 4.14 kernels lack fsopen/fsmount/move_mount: use legacy mount(2)
-    nix::mount::mount(
-        Some(lo.as_os_str()),
-        target.as_ref(),
-        Some("ext4"),
-        nix::mount::MsFlags::empty(),
-        None::<&str>,
-    )
-    .map_err(|e| anyhow!("legacy mount ext4 failed: {}", e))?;
-    Ok(())
-}'''
-          t = t[:i] + new_body + t[j+1:]
-          io.open(p, 'w', encoding='utf-8').write(t)
-          print('mount_ext4 patched')
-          PY
-          grep -A6 'pub fn mount_ext4' mount.rs | head -20
+          set -e
+          curl -LSs -o ksu/userspace/ksud/src/mount.rs \
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/mount_414.rs
+          test -s ksu/userspace/ksud/src/mount.rs
+          grep -q 'legacy mount ext4' ksu/userspace/ksud/src/mount.rs
+          echo "=== patch applied ==="
+          grep -n 'legacy mount' ksu/userspace/ksud/src/mount.rs
 
       - name: Build ksud
         run: |
@@ -88,10 +48,8 @@ jobs:
           export CC_aarch64_linux_android=$TOOLCHAIN/bin/aarch64-linux-android26-clang
           export AR_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ar
           export RANLIB_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ranlib
-          export CFLAGS_aarch64_linux_android="-O2"
-          cargo build --release --target aarch64-linux-android
+          cargo build --release --target aarch64-linux-android 2>&1 | tail -30
           ls -la target/aarch64-linux-android/release/ksud
-          file target/aarch64-linux-android/release/ksud
 
       - name: Upload ksud
         uses: actions/upload-artifact@v4
