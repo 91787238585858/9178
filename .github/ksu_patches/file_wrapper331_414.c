@@ -28,10 +28,6 @@ struct ksu_file_wrapper {
 
 static void ksu_release_file_wrapper(struct ksu_file_wrapper *data);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
-typedef unsigned int __poll_t;
-#endif
-
 static loff_t ksu_wrapper_llseek(struct file *fp, loff_t off, int flags)
 {
 	struct ksu_file_wrapper *data = fp->private_data;
