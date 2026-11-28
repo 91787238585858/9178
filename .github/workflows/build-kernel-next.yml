@@ -387,13 +387,6 @@ jobs:
           PYKSD
           grep -c 'ksu_mark_global' drivers/kernelsu/ksud.c
 
-      - name: Point SU_PATH at a writable location (ksud cannot create /system/bin/su)
-        run: |
-          cd kernel
-          sed -i 's|#define SU_PATH "/system/bin/su"|#define SU_PATH "/data/local/tmp/su"|' drivers/kernelsu/sucompat.c
-          echo "=== SU_PATH patched ==="
-          grep -n 'define SU_PATH' drivers/kernelsu/sucompat.c
-
       - name: Patch rules.c policydb accessor for 4.14
         run: |
           cd kernel
