@@ -364,6 +364,29 @@ jobs:
           PYEX
           grep -c 'ksu_execve_sucompat_kp' drivers/kernelsu/syscall_hook_manager.c
 
+      - name: Instrument ksud kprobe registration
+        run: |
+          cd kernel
+          python3 - <<'PYKSD'
+          import io
+          p = 'drivers/kernelsu/ksud.c'
+          t = io.open(p, encoding='utf-8').read()
+          t = t.replace('#include "klog.h"', '#include "klog.h"\nextern void ksu_mark_global(const char *name);', 1)
+          pairs = [
+            ('ksud: execve_kp',      'ksu_ksud_execve'),
+            ('ksud: vfs_read_kp',    'ksu_ksud_read'),
+            ('ksud: input_event_kp', 'ksu_ksud_input'),
+          ]
+          for label, tag in pairs:
+            old = 'pr_info("%s: %%d\\n", ret);' % label
+            new = old + ' ksu_mark_global(ret ? "%s_FAIL" : "%s_OK");' % (tag, tag)
+            assert old in t, old
+            t = t.replace(old, new, 1)
+          io.open(p, 'w', encoding='utf-8', newline='\n').write(t)
+          print('ksud kprobe markers added')
+          PYKSD
+          grep -c 'ksu_mark_global' drivers/kernelsu/ksud.c
+
       - name: Patch rules.c policydb accessor for 4.14
         run: |
           cd kernel
