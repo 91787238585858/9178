@@ -428,6 +428,13 @@ jobs:
             fi
           }
           set_config CONFIG_KSU y $D
+          # v2.1.2 hooks the setuid/execve syscalls via tracepoints, which only
+          # exist when FTRACE_SYSCALLS is enabled. Without it the manager never
+          # receives its fd and stays in the "unsupported" state.
+          set_config CONFIG_FTRACE_SYSCALLS y $D
+          set_config CONFIG_FTRACE y $D
+          set_config CONFIG_TRACING y $D
+          set_config CONFIG_HAVE_SYSCALL_TRACEPOINTS y $D
           set_config CONFIG_KPROBES y $D
           set_config CONFIG_HAVE_KPROBES y $D
           set_config CONFIG_KPROBE_EVENTS y $D
