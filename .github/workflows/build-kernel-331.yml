@@ -31,6 +31,7 @@ jobs:
           #ifndef _KSU_414_COMPAT_H
           #define _KSU_414_COMPAT_H
           #include <linux/types.h>
+          #include <linux/version.h>
           #include <linux/uaccess.h>
           #include <linux/sched/task.h>
           #include <linux/task_work.h>
@@ -64,7 +65,20 @@ jobs:
           #define __poll_t unsigned int
           #endif
           #endif
-          #include <linux/eventpoll.h>
+          /* 4.14: <linux/poll.h> does not pull in the EPOLL_* constants */
+          #ifndef EPOLLIN
+          #define EPOLLIN     0x00000001
+          #define EPOLLPRI    0x00000002
+          #define EPOLLOUT    0x00000004
+          #define EPOLLERR    0x00000008
+          #define EPOLLHUP    0x00000010
+          #define EPOLLRDNORM 0x00000040
+          #define EPOLLRDBAND 0x00000080
+          #define EPOLLWRNORM 0x00000100
+          #define EPOLLWRBAND 0x00000200
+          #define EPOLLMSG    0x00000400
+          #define EPOLLRDHUP  0x00002000
+          #endif
           static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
           {
           	return strncpy_from_user(dst, unsafe_addr, count);
