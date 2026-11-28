@@ -88,8 +88,13 @@ jobs:
           sed -i '/subdir-ccflags-y += -Werror/d' drivers/misc/mediatek/Makefile
           if [ -f drivers/kernelsu/seccomp_cache.c ]; then
             cat > drivers/kernelsu/seccomp_cache.c <<'SECCACHE'
-          /* 4.14: struct seccomp_filter has no cache field; this feature is stubbed */
+          /* 4.14: struct seccomp_filter has no BPF cache. Instead of allow-listing
+           * a single syscall we drop the filter for the current thread, which is
+           * what upstream escape_with_root_profile() effectively achieves. */
           #include <linux/types.h>
+          #include <linux/sched.h>
+          #include <linux/seccomp.h>
+          #include <linux/thread_info.h>
 
           struct seccomp_filter;
 
@@ -99,6 +104,13 @@ jobs:
 
           void ksu_seccomp_allow_cache(struct seccomp_filter *filter, int nr)
           {
+          	if (!filter)
+          		return;
+          	clear_thread_flag(TIF_SECCOMP);
+          #ifdef CONFIG_SECCOMP
+          	current->seccomp.mode = 0;
+          	current->seccomp.filter = NULL;
+          #endif
           }
           SECCACHE
             echo "=== seccomp_cache stubbed ==="
