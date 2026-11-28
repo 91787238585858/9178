@@ -35,7 +35,7 @@ static const struct file_operations ksu_step_fops = {
 	.release = single_release,
 };
 
-static void ksu_mark(const char *name)
+void ksu_mark_global(const char *name)
 {
 	proc_create(name, 0444, NULL, &ksu_step_fops);
 }
@@ -96,7 +96,7 @@ static void ksu_crown_probe_fn(struct work_struct *w)
 
 int __init kernelsu_init(void)
 {
-	ksu_mark("ksu_step0_enter");
+	ksu_mark_global("ksu_step0_enter");
 	schedule_delayed_work(&ksu_crown_probe, 20 * HZ);
 	proc_create("ksu_live", 0444, NULL, &ksu_live_fops);
 
@@ -111,23 +111,23 @@ int __init kernelsu_init(void)
 #endif
 
 	ksu_feature_init();
-	ksu_mark("ksu_step1_feature");
+	ksu_mark_global("ksu_step1_feature");
 
 	ksu_supercalls_init();
-	ksu_mark("ksu_step2_supercalls");
+	ksu_mark_global("ksu_step2_supercalls");
 
 	ksu_syscall_hook_manager_init();
-	ksu_mark("ksu_step3_syscallhooks");
+	ksu_mark_global("ksu_step3_syscallhooks");
 
 	ksu_allowlist_init();
-	ksu_mark("ksu_step4_allowlist");
+	ksu_mark_global("ksu_step4_allowlist");
 
 	ksu_throne_tracker_init();
-	ksu_mark("ksu_step5_throne");
+	ksu_mark_global("ksu_step5_throne");
 
 #ifdef CONFIG_KPROBES
 	ksu_ksud_init();
-	ksu_mark("ksu_step6_ksud");
+	ksu_mark_global("ksu_step6_ksud");
 #else
 	pr_alert("KPROBES is disabled, KernelSU may not work, please check https://kernelsu.org/guide/how-to-integrate-for-non-gki.html");
 #endif
@@ -138,7 +138,7 @@ int __init kernelsu_init(void)
 #endif
 #endif
 
-	ksu_mark("ksu_step7_done");
+	ksu_mark_global("ksu_step7_done");
 	return 0;
 }
 
