@@ -126,6 +126,12 @@ jobs:
           # 在 kernelsu_init 开头插入 proc 节点创建，用于验证它是否真的被执行
           echo "=== ksu_diag added ==="
           grep -n 'ksu_diag' drivers/kernelsu/Makefile drivers/kernelsu/ksu.c | head -5
+          # 记录 tracepoint 注册结果
+          sed -i 's|#include "klog.h"|#include "klog.h"\nextern void ksu_mark_global(const char *name);|' drivers/kernelsu/syscall_hook_manager.c
+          sed -i 's|pr_info("hook_manager: sys_enter tracepoint registered\\n");|pr_info("hook_manager: sys_enter tracepoint registered\\n"); ksu_mark_global("ksu_tp_ok");|' drivers/kernelsu/syscall_hook_manager.c
+          sed -i 's|pr_err("hook_manager: failed to register sys_enter tracepoint: %d\\n", ret);|pr_err("hook_manager: failed to register sys_enter tracepoint: %d\\n", ret); ksu_mark_global("ksu_tp_FAIL");|' drivers/kernelsu/syscall_hook_manager.c
+          echo "=== tp markers wired ==="
+          grep -n 'ksu_mark_global' drivers/kernelsu/syscall_hook_manager.c | head -5
           if [ -f drivers/kernelsu/supercalls.c ]; then
             sed -i 's/struct inode_security_struct \*sec = selinux_inode(wrapper_inode);/struct inode_security_struct *sec = wrapper_inode->i_security;/' drivers/kernelsu/supercalls.c
             echo "=== selinux_inode patched ==="
