@@ -330,8 +330,11 @@ jobs:
           code = """#ifdef CONFIG_KPROBES
           static int ksu_execve_sucompat_kp_pre(struct kprobe *p, struct pt_regs *regs)
           {
-          	const char __user **filename_user =
-          		(const char __user **)&PT_REGS_PARM1(regs);
+          	const char __user **filename_user;
+          	/* fast bail-out: only allow-listed uids (or ksu domain) may use su */
+          	if (!ksu_is_allow_uid_for_current(current_uid().val))
+          		return 0;
+          	filename_user = (const char __user **)&PT_REGS_PARM1(regs);
           	ksu_handle_execve_sucompat(filename_user, NULL, NULL, NULL);
           	return 0;
           }
