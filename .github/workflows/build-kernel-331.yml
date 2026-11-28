@@ -239,7 +239,7 @@ jobs:
         run: |
           cd kernel
           curl -LSs -o drivers/kernelsu/infra/file_wrapper.c \
-            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/file_wrapper331.c
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/file_wrapper331_414.c
           test -s drivers/kernelsu/infra/file_wrapper.c || { echo "FATAL: file_wrapper download failed"; exit 1; }
           echo "=== file_wrapper.c replaced (4.14) ==="
           wc -l drivers/kernelsu/infra/file_wrapper.c
