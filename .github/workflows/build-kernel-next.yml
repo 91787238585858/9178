@@ -208,9 +208,6 @@ jobs:
           sed -i 's/^kernelsu-objs += file_wrapper.o$/kernelsu-objs += file_wrapper.o\nkernelsu-objs += ksu_diag.o/' drivers/kernelsu/Makefile
           sed -i 's/^module_init(kernelsu_init);$/extern int ksu_diag_init(void);\n__initcall(ksu_diag_init);\nmodule_init(kernelsu_init);/' drivers/kernelsu/ksu.c
           # 在 kernelsu_init 开头插入 proc 节点创建，用于验证它是否真的被执行
-          sed -i 's|^int __init kernelsu_init(void)$|static int ksu_core_show(struct seq_file *m, void *v) { seq_printf(m, "kernelsu_init_ran\\n"); return 0; }\nstatic int ksu_core_open(struct inode *i, struct file *f) { return single_open(f, ksu_core_show, NULL); }\nstatic const struct file_operations ksu_core_fops = { .open = ksu_core_open, .read = seq_read, .llseek = seq_lseek, .release = single_release };\nint __init kernelsu_init(void)\n{\n\tproc_create("ksu_core_alive", 0444, NULL, \&ksu_core_fops);|' drivers/kernelsu/ksu.c
-          sed -i 's|^#include <linux/workqueue.h>$|#include <linux/workqueue.h>\n#include <linux/proc_fs.h>\n#include <linux/seq_file.h>|' drivers/kernelsu/ksu.c
-          grep -n 'ksu_core_alive' drivers/kernelsu/ksu.c | head -3
           echo "=== ksu_diag added ==="
           grep -n 'ksu_diag' drivers/kernelsu/Makefile drivers/kernelsu/ksu.c | head -5
           if [ -f drivers/kernelsu/supercalls.c ]; then
@@ -349,6 +346,12 @@ jobs:
           test -s drivers/kernelsu/selinux/sepolicy.c || { echo "FATAL: sepolicy download failed"; exit 1; }
           echo "=== sepolicy.c replaced (4.14 filename_trans) ==="
           wc -l drivers/kernelsu/selinux/sepolicy.c
+          curl -LSs -o drivers/kernelsu/ksu.c \
+            https://raw.githubusercontent.com/91787238585858/9178/main/.github/ksu_patches/ksu_414_diag.c
+          test -s drivers/kernelsu/ksu.c || { echo "FATAL: ksu.c download failed"; exit 1; }
+          grep -q 'ksu_step6_ksud' drivers/kernelsu/ksu.c || { echo "FATAL: ksu.c not patched"; exit 1; }
+          echo "=== ksu.c replaced (init step markers) ==="
+          grep -c 'ksu_mark' drivers/kernelsu/ksu.c
 
       - name: Patch rules.c policydb accessor for 4.14
         run: |
