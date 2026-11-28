@@ -58,6 +58,13 @@ jobs:
           #ifndef __pte_to_phys
           #define __pte_to_phys(pte) __pfn_to_phys(pte_pfn(pte))
           #endif
+          /* 4.14: __poll_t and EPOLL_* are not pulled in by <linux/poll.h> */
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+          #ifndef __poll_t
+          #define __poll_t unsigned int
+          #endif
+          #endif
+          #include <linux/eventpoll.h>
           static inline long strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr, long count)
           {
           	return strncpy_from_user(dst, unsafe_addr, count);
