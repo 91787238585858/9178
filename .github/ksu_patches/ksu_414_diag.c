@@ -59,9 +59,45 @@ static const struct file_operations ksu_live_fops = {
 	.release = single_release,
 };
 
+static int ksu_crown_marked;
+static int ksu_tick_marked;
+
+static void ksu_crown_probe_fn(struct work_struct *w);
+
+static DECLARE_DELAYED_WORK(ksu_crown_probe, ksu_crown_probe_fn);
+
+static int ksu_probe_ticks;
+
+/* SELinux lets userland list /proc but not read our nodes, so encode the
+ * crowned manager uid in the node *name*. */
+static void ksu_crown_probe_fn(struct work_struct *w)
+{
+	char name[48];
+	int uid = ksu_get_manager_uid();
+
+	ksu_probe_ticks++;
+
+	if (!ksu_tick_marked) {
+		proc_create("ksu_tickok", 0444, NULL, &ksu_step_fops);
+		ksu_tick_marked = 1;
+	}
+
+	if (uid > 0 && !ksu_crown_marked) {
+		snprintf(name, sizeof(name), "ksu_crowned_%d", uid);
+		proc_create(name, 0444, NULL, &ksu_step_fops);
+		ksu_crown_marked = 1;
+	} else if (uid == 0 && ksu_probe_ticks == 12) {
+		proc_create("ksu_crowned_none", 0444, NULL, &ksu_step_fops);
+	}
+
+	if (ksu_probe_ticks < 60)
+		schedule_delayed_work(&ksu_crown_probe, 5 * HZ);
+}
+
 int __init kernelsu_init(void)
 {
 	ksu_mark("ksu_step0_enter");
+	schedule_delayed_work(&ksu_crown_probe, 20 * HZ);
 	proc_create("ksu_live", 0444, NULL, &ksu_live_fops);
 
 #ifdef CONFIG_KSU_DEBUG
